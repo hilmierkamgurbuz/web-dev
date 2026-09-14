@@ -1,0 +1,108 @@
+rules:
+  - id: web-dev-redirect-from-request
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Redirect target is taken from the request. Redirect only to allowlisted relative paths.
+    pattern-either:
+      - pattern: $RES.redirect(<... $REQ.query ...>)
+      - pattern: $RES.redirect(<... $REQ.params ...>)
+      - pattern: $RES.redirect(<... $REQ.body ...>)
+      - pattern: redirect(<... $REQ.nextUrl.searchParams.get(...) ...>)
+
+  - id: web-dev-sql-template-interpolation
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: SQL built with string interpolation reaches a query function. Bind parameters instead.
+    pattern-either:
+      - pattern: $DB.query(`...${$X}...`, ...)
+      - pattern: $DB.execute(`...${$X}...`, ...)
+      - pattern: $DB.raw(`...${$X}...`, ...)
+      - pattern: $DB.$queryRawUnsafe(...)
+      - pattern: $DB.$executeRawUnsafe(...)
+      - pattern: $DB.query("..." + $X, ...)
+
+  - id: web-dev-shell-command-built-at-runtime
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Shell command built at runtime. Use execFile or spawn with an argument array and no shell.
+    pattern-either:
+      - pattern: exec(`...${$X}...`, ...)
+      - pattern: execSync(`...${$X}...`, ...)
+      - pattern: $CP.exec(`...${$X}...`, ...)
+      - pattern: $CP.execSync(`...${$X}...`, ...)
+      - pattern: exec("..." + $X, ...)
+      - pattern: execSync("..." + $X, ...)
+
+  - id: web-dev-ssrf-request-derived-url
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Outbound request URL is derived from request input. Check the host against an allowlist first.
+    mode: taint
+    pattern-sources:
+      - pattern: $REQ.query
+      - pattern: $REQ.body
+      - pattern: $REQ.params
+      - pattern: $REQ.nextUrl.searchParams.get(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: fetch($URL, ...)
+              - pattern: axios.get($URL, ...)
+              - pattern: axios.post($URL, ...)
+              - pattern: axios($URL, ...)
+              - pattern: got($URL, ...)
+          - focus-metavariable: $URL
+    pattern-sanitizers:
+      - pattern: $ALLOW.includes(...)
+      - pattern: new URL(...).host
+
+  - id: web-dev-path-traversal
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: File system access uses a path derived from request input. Resolve it and verify it stays inside the allowed directory.
+    mode: taint
+    pattern-sources:
+      - pattern: $REQ.query
+      - pattern: $REQ.params
+      - pattern: $REQ.body
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: fs.readFile($P, ...)
+              - pattern: fs.readFileSync($P, ...)
+              - pattern: fs.createReadStream($P, ...)
+              - pattern: fs.writeFile($P, ...)
+              - pattern: $RES.sendFile($P, ...)
+          - focus-metavariable: $P
+
+  - id: web-dev-jwt-none-algorithm
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: JWT verification allows the "none" algorithm.
+    pattern: '$JWT.verify($TOKEN, $KEY, {..., algorithms: [..., "none", ...], ...})'
+
+  - id: web-dev-xss-dangerously-set-inner-html
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: dangerouslySetInnerHTML receives a value that is not sanitized.
+    patterns:
+      - pattern: <$EL dangerouslySetInnerHTML={{__html: $X}} />
+      - pattern-not: <$EL dangerouslySetInnerHTML={{__html: DOMPurify.sanitize(...)}} />
+      - pattern-not: <$EL dangerouslySetInnerHTML={{__html: sanitize(...)}} />
+      - pattern-not: <$EL dangerouslySetInnerHTML={{__html: "..."}} />
+
+  - id: web-dev-cors-any-origin-with-credentials
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: CORS allows any origin together with credentials.
+    pattern-either:
+      - pattern: 'cors({..., origin: "*", ..., credentials: true, ...})'
+      - pattern: 'cors({..., origin: true, ..., credentials: true, ...})'
+
+  - id: web-dev-tls-verification-disabled
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: TLS certificate verification is disabled.
+    pattern-either:
+      - pattern: '{..., rejectUnauthorized: false, ...}'
+      - pattern: process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"

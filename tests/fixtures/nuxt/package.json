@@ -1,0 +1,21 @@
+{
+  "name": "nuxt-fixture",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "typecheck": "nuxt typecheck"
+  },
+  "dependencies": {
+    "nuxt": "3.14.1592",
+    "vue": "3.5.13",
+    "zod": "3.24.1",
+    "nuxt-auth-utils": "0.5.7"
+  },
+  "devDependencies": {
+    "typescript": "5.7.2"
+  }
+}

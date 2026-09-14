@@ -1,0 +1,20 @@
+{
+  "name": "web-dev",
+  "owner": {
+    "name": "hilmi erkam gürbüz",
+    "url": "https://github.com/hilmierkamgurbuz"
+  },
+  "description": "Marketplace for the web-dev Claude Code plugin — web application development with a hook-enforced harness.",
+  "plugins": [
+    {
+      "name": "web-dev",
+      "source": "./",
+      "description": "Harness for ALL JavaScript/TypeScript web development — new and existing projects. Question-first intake, approved briefs instead of plan mode, hook-enforced security/comment/manifest gates, never-stale code/API/UI/data maps, responsive checks, supervisor review, branch → PR → /clear.",
+      "category": "development",
+      "tags": ["web", "react", "nextjs", "vue", "svelte", "node", "typescript", "security"],
+      "license": "MIT",
+      "homepage": "https://github.com/hilmierkamgurbuz/web-dev",
+      "repository": "https://github.com/hilmierkamgurbuz/web-dev"
+    }
+  ]
+}

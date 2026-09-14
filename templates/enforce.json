@@ -1,0 +1,5 @@
+{
+  "_comment": "web-dev enforcement marker. Commit this file: its presence is what arms the write gate in every clone and worktree of this project. Deleting it disables enforcement silently, so the SessionStart report states whether it is present.",
+  "enforcement": true,
+  "schema": 1
+}

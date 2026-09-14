@@ -1,0 +1,13 @@
+{
+  "_comment": "Path pattern -> codemap shard. First match wins; the last entry is the catch-all. init_project tailors this to the detected framework. `**/` matches zero or more directories, `*` does not cross `/`.",
+  "shards": [
+    { "name": "tests", "patterns": ["**/__tests__/**", "**/*.test.*", "**/*.spec.*", "tests/**", "e2e/**", "test/**"] },
+    { "name": "data", "patterns": ["prisma/**", "drizzle/**", "**/migrations/**", "**/db/**", "**/database/**", "**/models/**", "**/entities/**", "**/schema/**", "**/schemas/**"] },
+    { "name": "server", "patterns": ["server/**", "**/api/**", "**/controllers/**", "**/services/**", "**/middleware/**", "**/middlewares/**", "**/*.server.*", "**/+server.*", "**/trpc/**", "**/graphql/**", "**/resolvers/**"] },
+    { "name": "ui", "patterns": ["**/components/**", "**/app/**", "**/pages/**", "**/views/**", "**/layouts/**", "**/*.vue", "**/*.svelte", "**/*.tsx", "**/*.jsx"] },
+    { "name": "client", "patterns": ["**/hooks/**", "**/stores/**", "**/store/**", "**/composables/**", "**/state/**"] },
+    { "name": "features", "patterns": ["**/features/**", "**/modules/**", "**/domains/**"] },
+    { "name": "shared", "patterns": ["**/lib/**", "**/utils/**", "**/shared/**", "**/types/**", "**/config/**"] },
+    { "name": "core", "patterns": ["**"] }
+  ]
+}

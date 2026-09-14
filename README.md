@@ -30,23 +30,72 @@ It runs on macOS, Linux and Windows. The hooks are Node scripts started in exec 
 
 ## Install
 
+This GitHub repository is both a Claude Code plugin marketplace (`.claude-plugin/marketplace.json`) and the plugin itself (`.claude-plugin/plugin.json`, `SKILL.md`, `skills/`).
+
+**Inside Claude Code**
+
 ```text
 /plugin marketplace add hilmierkamgurbuz/web-dev
 /plugin install web-dev@web-dev
 ```
 
-From a local checkout: `/plugin marketplace add /path/to/web-dev`, then install `web-dev@web-dev`.
+If the install summary asks for it, run `/reload-plugins`.
+
+**From a terminal**
+
+```bash
+claude plugin marketplace add hilmierkamgurbuz/web-dev
+claude plugin install web-dev@web-dev
+claude plugin list
+```
+
+**Pin a release** — add the marketplace from a release tag instead of `main`:
+
+```bash
+claude plugin marketplace add https://github.com/hilmierkamgurbuz/web-dev.git#web-dev--v1.1.0
+```
+
+**Update**
+
+```bash
+claude plugin marketplace update web-dev
+claude plugin update web-dev@web-dev
+```
+
+After updating, run `/web-dev:init` again in each project so its hooks match the new version.
+
+**Remove**
+
+```bash
+claude plugin uninstall web-dev@web-dev
+claude plugin marketplace remove web-dev
+```
+
+**For a team** — `/web-dev:init` writes the following into the project's `.claude/settings.json`. Everyone who clones the repository and trusts the folder is then offered the marketplace and the plugin, so the hooks never run without the skill that explains them:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "web-dev": { "source": { "source": "github", "repo": "hilmierkamgurbuz/web-dev" } }
+  },
+  "enabledPlugins": { "web-dev@web-dev": true }
+}
+```
+
+**From a local checkout**: `claude plugin marketplace add /path/to/web-dev`, then `claude plugin install web-dev@web-dev`.
 
 ## Use
 
 - **New project:** describe the app. The skill runs `procedures/bootstrap.md`: product questions, stack choices with options, blueprint, scaffold, harness install, then the first feature.
 - **Existing project:** ask to adopt it. `procedures/adopt.md` installs the harness, builds the maps, writes the notes with parallel subagents, drafts the blueprint for your confirmation, and reports a security baseline.
 
-The skill installs the harness into the project with:
+To activate web-dev in a project, open Claude Code in it and run:
 
-```bash
-node <plugin>/scripts/init_project.mjs <project-root> --setup
+```text
+/web-dev:init
 ```
+
+This checks Node and git, and installs the harness: hooks, agents, rules, config, maps and the pinned parser. It then tells you what to commit. Bootstrap and adoption use the same installer: `node ${CLAUDE_PLUGIN_ROOT}/scripts/init_project.mjs <project-root> --setup`.
 
 After installing, start a new Claude Code session in the project and accept the trust dialog. Then check two things:
 - `/hooks` lists SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart, SubagentStop and Stop.

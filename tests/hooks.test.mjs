@@ -41,6 +41,8 @@ describe('web-dev hooks', { skip: !ts && 'parser not installed (wd setup)' }, ()
     const settings = JSON.parse(readFile(dir, '.claude/settings.json'));
     assert.deepEqual(Object.keys(settings.hooks).sort(), ['PostToolUse', 'PreToolUse', 'SessionStart', 'Stop', 'SubagentStart', 'SubagentStop', 'UserPromptSubmit']);
     assert.ok(settings.permissions.deny.includes('EnterPlanMode'));
+    assert.deepEqual(settings.extraKnownMarketplaces['web-dev'].source, { source: 'github', repo: 'hilmierkamgurbuz/web-dev' });
+    assert.equal(settings.enabledPlugins['web-dev@web-dev'], true);
     assert.ok(fs.existsSync(path.join(dir, '.claude/web-dev/enforce.json')));
     assert.match(readFile(dir, 'CLAUDE.md'), /@\.claude\/web-dev\/CLAUDE\.md/);
   });

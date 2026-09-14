@@ -32,7 +32,7 @@ Input: the user's description of the app. Output: the artifacts below, each appr
 7. **Scaffold** with the framework's official CLI in non-interactive mode, using the flags that match the decisions (for example `create-next-app`, `npm create vite@latest`, `npx nuxi init`, `npx sv create`, `npx @nestjs/cli new`):
    - Then install `typescript`, the test runner, `@playwright/test` and `@axe-core/playwright` as devDependencies.
    - Commit `chore: scaffold` on the default branch. This commit is the **baseline**: comment and pattern rules apply to changes after it, never to the generator's own output.
-8. **Install the harness** with `node <skill dir>/scripts/init_project.mjs <project root>`:
+8. **Install the harness** with `node <skill dir>/scripts/init_project.mjs <project root> --setup`, the same installer as `/web-dev:init`:
    - It writes `.claude/settings.json`, the hooks, agents, rules, `config.json`, `shards.json`, `enforce.json` and the gitignore lines, and records the baseline.
    - Run `wd setup` once per machine to install the pinned parser.
    - Commit `chore: add web-dev harness`.

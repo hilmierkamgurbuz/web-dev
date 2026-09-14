@@ -73,6 +73,8 @@ function mergeSettings(target, template) {
     merged.hooks[event] = [...existing, ...groups];
   }
   if (template.statusLine && !current.statusLine) merged.statusLine = template.statusLine;
+  merged.extraKnownMarketplaces = { ...(template.extraKnownMarketplaces || {}), ...(current.extraKnownMarketplaces || {}) };
+  merged.enabledPlugins = { ...(template.enabledPlugins || {}), ...(current.enabledPlugins || {}) };
   writeJson(target, merged);
   return 'merged (backup: settings.json.web-dev.bak)';
 }

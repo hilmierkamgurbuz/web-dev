@@ -8,7 +8,7 @@ Input: a repository with code. Output: the harness installed, maps with notes, a
    - Node ≥ 20 and a git repository.
    - If the working tree is dirty, ask whether to commit, stash, or stop. Never adopt on top of unknown uncommitted work.
 2. **Branch**: `git switch -c chore/web-dev-adopt`. Adoption is delivered as a PR like any other task.
-3. **Install**: run `node <skill dir>/scripts/init_project.mjs <project root>`, then `wd setup` if the parser is not installed on this machine. The installer:
+3. **Install**: run `node <skill dir>/scripts/init_project.mjs <project root> --setup`. This is the same installer the user runs with `/web-dev:init`, and `--setup` installs the parser if this machine lacks it. The installer:
    - prints a detection report: frameworks, package manager, workspaces, scripts found for typecheck/lint/test/build/dev, test runners, ORM, auth libraries, and Playwright presence
    - records the current HEAD as the baseline
 4. **Confirm detection** with questions:

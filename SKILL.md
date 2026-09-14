@@ -21,7 +21,7 @@ done. This file is the router. Everything else is opened only when the router
 or a hook points at it.
 
 `wd` below means `node .claude/hooks/web-dev/wd.mjs` run from the project root.
-This skill's directory is `${CLAUDE_SKILL_DIR}`. The installer is `node ${CLAUDE_SKILL_DIR}/scripts/init_project.mjs <project root>`, used by `bootstrap.md` and `adopt.md`.
+This skill's directory is `${CLAUDE_SKILL_DIR}`. The installer is `node ${CLAUDE_SKILL_DIR}/scripts/init_project.mjs <project root> --setup`, used by `bootstrap.md` and `adopt.md`. Users can run the same installer themselves with `/web-dev:init`.
 
 ## Principles
 

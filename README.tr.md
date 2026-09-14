@@ -30,23 +30,72 @@ macOS, Linux ve Windows'ta çalışır. Hook'lar exec-form ile başlatılan Node
 
 ## Kurulum
 
+Bu GitHub reposu hem bir Claude Code plugin marketplace'i (`.claude-plugin/marketplace.json`) hem de plugin'in kendisidir (`.claude-plugin/plugin.json`, `SKILL.md`, `skills/`).
+
+**Claude Code içinden**
+
 ```text
 /plugin marketplace add hilmierkamgurbuz/web-dev
 /plugin install web-dev@web-dev
 ```
 
-Yerel kopyadan kurmak için: `/plugin marketplace add /path/to/web-dev`, ardından `web-dev@web-dev`'i kurun.
+Kurulum özeti isterse ardından `/reload-plugins` çalıştırın.
+
+**Terminalden**
+
+```bash
+claude plugin marketplace add hilmierkamgurbuz/web-dev
+claude plugin install web-dev@web-dev
+claude plugin list
+```
+
+**Belirli bir sürüme sabitlemek** için marketplace'i `main` yerine bir sürüm etiketinden ekleyin:
+
+```bash
+claude plugin marketplace add https://github.com/hilmierkamgurbuz/web-dev.git#web-dev--v1.1.0
+```
+
+**Güncellemek**
+
+```bash
+claude plugin marketplace update web-dev
+claude plugin update web-dev@web-dev
+```
+
+Güncellemeden sonra her projede `/web-dev:init`'i tekrar çalıştırın; projedeki hook'lar yeni sürüme eşitlenir.
+
+**Kaldırmak**
+
+```bash
+claude plugin uninstall web-dev@web-dev
+claude plugin marketplace remove web-dev
+```
+
+**Takım için**: `/web-dev:init` projenin `.claude/settings.json` dosyasına aşağıdaki ayarı yazar. Repoyu klonlayıp klasörü güvenilir olarak işaretleyen herkese marketplace ve plugin otomatik önerilir. Böylece hook'lar, onları açıklayan skill olmadan hiç çalışmaz.
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "web-dev": { "source": { "source": "github", "repo": "hilmierkamgurbuz/web-dev" } }
+  },
+  "enabledPlugins": { "web-dev@web-dev": true }
+}
+```
+
+**Yerel kopyadan**: `claude plugin marketplace add /path/to/web-dev`, ardından `claude plugin install web-dev@web-dev`.
 
 ## Kullanım
 
 - **Yeni proje:** Uygulamayı anlatın. Skill `procedures/bootstrap.md` akışını izler: ürün soruları, seçenekli stack kararları, blueprint, scaffold, harness kurulumu, ardından ilk feature.
 - **Mevcut proje:** Adopt edilmesini isteyin. `procedures/adopt.md` harness'ı kurar, haritaları üretir, notları paralel subagent'larla yazar, blueprint taslağını onayınıza sunar ve bir güvenlik başlangıç raporu çıkarır.
 
-Skill harness'ı projeye şu komutla kurar:
+web-dev'i bir projede etkinleştirmek için projede Claude Code'u açın ve şunu çalıştırın:
 
-```bash
-node <plugin>/scripts/init_project.mjs <proje-kökü> --setup
+```text
+/web-dev:init
 ```
+
+Bu komut Node ve git'i kontrol eder, harness'ı kurar (hook'lar, agent'lar, kurallar, config, haritalar ve sabit sürüm parser) ve neyi commit'lemeniz gerektiğini söyler. Bootstrap ve adopt akışları da aynı kurulum script'ini kullanır: `node ${CLAUDE_PLUGIN_ROOT}/scripts/init_project.mjs <proje-kökü> --setup`.
 
 Kurulumdan sonra projede yeni bir Claude Code oturumu açın ve trust diyaloğunu onaylayın. Ardından iki şeyi kontrol edin:
 - `/hooks` şu yedi olayı listelemeli: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart, SubagentStop, Stop.

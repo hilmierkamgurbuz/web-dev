@@ -1,7 +1,7 @@
 {
   "name": "web-dev",
   "displayName": "web-dev",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A harness for web application development in JavaScript/TypeScript (React, Next.js, Vue, Nuxt, Svelte, Node, Express, NestJS, Fastify, Hono) — new projects and existing ones. Question-first intake with options, an approved task brief instead of plan mode, hook-enforced gates (manifest, security, no code comments, default-branch protection, dependency approval), self-auditing code/API/UI/data maps with per-function notes that never go stale, Playwright responsive checks, a supervisor review, and a branch → PR → /clear cycle. Requires Node 20+, git and Claude Code v2.1.200+ (macOS, Linux, Windows).",
   "author": {
     "name": "hilmi erkam gürbüz",
@@ -25,6 +25,7 @@
     "harness"
   ],
   "skills": [
-    "./"
+    "./",
+    "./skills/"
   ]
 }

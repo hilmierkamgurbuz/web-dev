@@ -3,6 +3,15 @@
   "_form": "Every hook uses exec form (command + args) so a project path containing spaces is never re-tokenized by a shell. One dispatcher script routes by event and tool name, so each tool call spawns one process.",
   "_no_if_on_the_gate": "The PreToolUse group carries no `if` filter. A filter that silently stops matching after a version change would turn the gate into a no-op.",
   "_deny": "EnterPlanMode is removed because web-dev plans through the approved brief. Worktree-isolated agents are refused because a fresh worktree moves CLAUDE_PROJECT_DIR away from the manifest paths the gate checks.",
+  "_plugin": "extraKnownMarketplaces and enabledPlugins offer the web-dev plugin (the skill, procedures and gates) to everyone who clones this repository and trusts the folder, so the hooks below never run without the instructions they enforce.",
+  "extraKnownMarketplaces": {
+    "web-dev": {
+      "source": { "source": "github", "repo": "hilmierkamgurbuz/web-dev" }
+    }
+  },
+  "enabledPlugins": {
+    "web-dev@web-dev": true
+  },
   "permissions": {
     "deny": ["EnterPlanMode", "Agent(isolation:worktree)"]
   },

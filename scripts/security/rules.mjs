@@ -1,13 +1,15 @@
 import path from 'node:path';
-import { calleeChain, isFunctionLike, literalText, objectProp, plainChain, propName, unwrap } from '../extract/ast.mjs';
+import { calleeChain, collectConsts, isFunctionLike, literalText, objectProp, plainChain, propName, stringValue, unwrap } from '../extract/ast.mjs';
 import { scriptProjection, templateProjection } from '../lib/sfc.mjs';
 import { createSource, SFC_EXTENSIONS } from '../lib/ts.mjs';
 
 const REQUEST_ROOTS = new Set(['req', 'request', 'ctx', 'c', 'event', 'context', 'r', 'reqs']);
 const REQUEST_PROPS = new Set(['query', 'params', 'body', 'headers', 'cookies', 'url', 'originalUrl', 'path', 'searchParams', 'nextUrl', 'param', 'queries', 'formData', 'json', 'text', 'valid', 'raw']);
+const STRONG_REQUEST_KEYS = new Set(['query', 'params', 'body', 'headers', 'cookies', 'searchParams', 'nextUrl', 'formData']);
+const REQUEST_TYPE_NAMES = new Set(['Request', 'NextApiRequest', 'NextRequest', 'IncomingMessage', 'Http2ServerRequest', 'FastifyRequest', 'H3Event', 'RequestEvent', 'APIContext']);
 const H3_SOURCES = new Set(['getQuery', 'readBody', 'getRouterParam', 'getRouterParams', 'getHeader', 'getHeaders', 'getCookie', 'readRawBody', 'readFormData', 'readMultipartFormData']);
 const NEUTRALIZERS = /(sanitize|purify|escape|validate|allow|safe|assert|parse|check|whitelist|allowlist|isvalid|normalize|encode|clean|strip|filter|guard|verify)/i;
-const SANITIZERS = /(sanitize|purify|dompurify|xss|escapehtml|escape|clean)/i;
+const SANITIZER_PACKAGES = new Set(['dompurify', 'isomorphic-dompurify', 'sanitize-html', 'xss']);
 const SQL_SINKS = new Set(['query', 'execute', 'raw', '$queryRawUnsafe', '$executeRawUnsafe', 'unsafe', 'whereRaw', 'havingRaw', 'orderByRaw', 'joinRaw', 'fromRaw', 'selectRaw', 'exec', 'run', 'all', 'prepare']);
 const SQL_KEYWORDS = /\b(select|insert|update|delete|where|from|values|order\s+by|group\s+by|set|join|create|drop|alter)\b/i;
 const FS_SINKS = new Set(['readFile', 'readFileSync', 'createReadStream', 'createWriteStream', 'writeFile', 'writeFileSync', 'appendFile', 'appendFileSync', 'unlink', 'unlinkSync', 'rm', 'rmSync', 'readdir', 'readdirSync', 'stat', 'statSync', 'access', 'open', 'openSync', 'mkdir', 'rename', 'copyFile', 'sendFile', 'download']);
@@ -36,9 +38,18 @@ function isNeutralizedCall(ts, node) {
   return !!n && ts.isCallExpression(n) && NEUTRALIZERS.test(plainChain(calleeChain(ts, n.expression)).join('.'));
 }
 
-function isSanitizedCall(ts, node) {
+function isSanitizedCall(ts, node, sanitizerLocals) {
   const n = unwrap(ts, node);
-  return !!n && ts.isCallExpression(n) && SANITIZERS.test(plainChain(calleeChain(ts, n.expression)).join('.'));
+  if (!n || !ts.isCallExpression(n)) return false;
+  const chain = plainChain(calleeChain(ts, n.expression));
+  if (!chain.length || !sanitizerLocals.has(chain[0])) return false;
+  return chain.length === 1 || (chain.length === 2 && chain[1] === 'sanitize');
+}
+
+function sanitizedExpressionText(text, sanitizerLocals) {
+  if (!sanitizerLocals.size) return false;
+  const names = [...sanitizerLocals].map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  return new RegExp(`\\b(?:${names})\\s*(?:\\.sanitize)?\\s*\\(`).test(text);
 }
 
 function enclosingFunction(ts, node) {
@@ -55,15 +66,42 @@ function bindingNames(ts, name, out) {
   return out;
 }
 
+function destructuredEntries(ts, pattern) {
+  const entries = [];
+  for (const el of pattern.elements) {
+    if (ts.isOmittedExpression(el)) continue;
+    const keyNode = el.propertyName || el.name;
+    entries.push({ key: ts.isIdentifier(keyNode) ? keyNode.text : null, name: el.name });
+  }
+  return entries;
+}
+
+function requestTypeName(param) {
+  if (!param.type) return '';
+  return param.type.getText().replace(/<[\s\S]*$/, '').split('.').pop().trim();
+}
+
+function seedParameterTaint(ts, param, tainted) {
+  if (!ts.isObjectBindingPattern(param.name)) return;
+  const entries = destructuredEntries(ts, param.name);
+  const looksLikeRequest = REQUEST_TYPE_NAMES.has(requestTypeName(param)) || entries.some((e) => e.key && STRONG_REQUEST_KEYS.has(e.key));
+  if (!looksLikeRequest) return;
+  for (const entry of entries) {
+    if (entry.key && !REQUEST_PROPS.has(entry.key)) continue;
+    for (const name of bindingNames(ts, entry.name, [])) tainted.add(name);
+  }
+}
+
 export function createTaint(ts) {
   const cache = new Map();
   const isRequestDerived = (node, tainted) => {
     const n = unwrap(ts, node);
     if (!n) return false;
-    if (ts.isIdentifier(n)) return tainted.has(n.text);
+    if (ts.isIdentifier(n)) return tainted.has(n.text) || REQUEST_ROOTS.has(n.text);
     if (ts.isTemplateExpression(n)) return n.templateSpans.some((s) => isRequestDerived(s.expression, tainted));
     if (ts.isBinaryExpression(n)) return isRequestDerived(n.left, tainted) || isRequestDerived(n.right, tainted);
     if (ts.isConditionalExpression(n)) return isRequestDerived(n.whenTrue, tainted) || isRequestDerived(n.whenFalse, tainted);
+    if (ts.isNewExpression(n)) return (n.arguments || []).some((a) => isRequestDerived(a, tainted));
     if (ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n) || ts.isCallExpression(n)) {
       if (ts.isCallExpression(n) && isNeutralizedCall(ts, n)) return false;
       const chain = plainChain(calleeChain(ts, ts.isCallExpression(n) ? n.expression : n));
@@ -80,6 +118,7 @@ export function createTaint(ts) {
     if (cache.has(fn)) return cache.get(fn);
     const tainted = new Set();
     if (fn && isFunctionLike(ts, fn)) {
+      for (const param of fn.parameters) seedParameterTaint(ts, param, tainted);
       const declarations = [];
       const walk = (node) => {
         if (ts.isVariableDeclaration(node) && node.initializer) declarations.push(node);
@@ -116,6 +155,28 @@ function functionText(ts, sf, node) {
   return (fn && !ts.isSourceFile(fn) ? fn : sf).getText(sf);
 }
 
+function guardsDangerousKey(ts, sf, node, keyExpr) {
+  const keyText = keyExpr.getText(sf).trim();
+  if (!keyText) return false;
+  const escaped = keyText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const fnText = functionText(ts, sf, node);
+  if (new RegExp(`\\.includes\\(\\s*${escaped}\\s*\\)`).test(fnText)) return true;
+  if (new RegExp(`${escaped}\\s*(===|!==|==|!=)\\s*['"\`](__proto__|constructor|prototype)['"\`]`).test(fnText)) return true;
+  if (new RegExp(`hasOwn(Property)?\\s*\\(\\s*[^)]*\\b${escaped}\\b`).test(fnText)) return true;
+  return false;
+}
+
+function localConsts(ts, fn) {
+  const map = new Map();
+  if (!fn || !fn.body) return map;
+  const walk = (node) => {
+    if (ts.isVariableDeclaration(node) && node.initializer && ts.isIdentifier(node.name) && !map.has(node.name.text)) map.set(node.name.text, node.initializer);
+    ts.forEachChild(node, walk);
+  };
+  walk(fn.body);
+  return map;
+}
+
 export function astFindings(ts, rel, text, { tags = [], clientFile = false } = {}) {
   const ext = path.extname(rel).toLowerCase();
   let source = text;
@@ -131,6 +192,7 @@ export function astFindings(ts, rel, text, { tags = [], clientFile = false } = {
   const requestDerived = createTaint(ts);
   const childProcessLocals = new Set();
   const jwtLocals = new Set();
+  const sanitizerLocals = new Set();
   for (const statement of sf.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
     const spec = statement.moduleSpecifier.text;
@@ -138,6 +200,7 @@ export function astFindings(ts, rel, text, { tags = [], clientFile = false } = {
     const locals = [clause?.name?.text, clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings) ? clause.namedBindings.name.text : null, ...(clause?.namedBindings && ts.isNamedImports(clause.namedBindings) ? clause.namedBindings.elements.map((e) => e.name.text) : [])].filter(Boolean);
     if (spec === 'child_process' || spec === 'node:child_process') locals.forEach((l) => childProcessLocals.add(l));
     if (spec === 'jsonwebtoken' || spec === 'jose') locals.forEach((l) => jwtLocals.add(l));
+    if (SANITIZER_PACKAGES.has(spec)) locals.forEach((l) => sanitizerLocals.add(l));
   }
   const fileHasVerify = /\bverify\s*\(|jwtVerify\s*\(/.test(source);
   const serverFile = !clientFile;
@@ -158,7 +221,7 @@ export function astFindings(ts, rel, text, { tags = [], clientFile = false } = {
           findings.push(finding('WD-SEC-EVAL', line(node), `${name} with a string argument evaluates code`, 'pass a function instead of a string'));
         }
       }
-      if (name === 'insertAdjacentHTML' && args[1] && !isLiteral(ts, args[1]) && !isSanitizedCall(ts, args[1])) {
+      if (name === 'insertAdjacentHTML' && args[1] && !isLiteral(ts, args[1]) && !isSanitizedCall(ts, args[1], sanitizerLocals)) {
         findings.push(finding('WD-SEC-XSS-HTML', line(node), 'insertAdjacentHTML with a non-literal value', 'build DOM nodes with textContent, or sanitize with DOMPurify.sanitize first'));
       }
       if (root === 'document' && (name === 'write' || name === 'writeln') && args.some((a) => !isLiteral(ts, a))) {
@@ -167,23 +230,11 @@ export function astFindings(ts, rel, text, { tags = [], clientFile = false } = {
       if (SQL_SINKS.has(name) && args[0]) {
         const first = unwrap(ts, args[0]);
         const unsafeName = /Unsafe$|^unsafe$/.test(name);
-        let dynamic = false;
-        let staticText = '';
-        if (first && ts.isTemplateExpression(first)) {
-          dynamic = true;
-          staticText = first.head.text + first.templateSpans.map((s) => s.literal.text).join(' ');
-        } else if (first && ts.isBinaryExpression(first) && first.operatorToken.kind === ts.SyntaxKind.PlusToken && !isLiteral(ts, first.left) + !isLiteral(ts, first.right) > 0) {
-          dynamic = true;
-          staticText = first.getText(sf);
-        } else if (first && ts.isIdentifier(first)) {
-          const fnText = functionText(ts, sf, node);
-          const decl = new RegExp(`(?:const|let|var)\\s+${first.text}\\s*=\\s*(\`[^\`]*\\$\\{|['"][^'"]*['"]\\s*\\+)`).exec(fnText);
-          if (decl) {
-            dynamic = true;
-            staticText = fnText.slice(decl.index, decl.index + 200);
-          }
-        }
-        if (dynamic && (unsafeName || SQL_KEYWORDS.test(staticText))) {
+        const consts = new Map([...collectConsts(ts, sf), ...localConsts(ts, enclosingFunction(ts, node))]);
+        const resolved = first ? stringValue(ts, first, consts) : { value: '', complete: true, holes: [] };
+        const liveHoles = resolved.holes.filter((h) => !isNeutralizedCall(ts, h));
+        const dynamic = !resolved.complete && liveHoles.length > 0;
+        if (dynamic && (unsafeName || SQL_KEYWORDS.test(resolved.value))) {
           findings.push(finding('WD-SEC-SQL-INTERP', line(node), `${chain.join('.')}() receives SQL built by string interpolation`, 'use parameter placeholders or the driver\'s tagged template (sql`…`) so values are bound, not concatenated'));
         } else if (unsafeName && first && !isLiteral(ts, first)) {
           findings.push(finding('WD-SEC-SQL-INTERP', line(node), `${name} with a non-literal query`, 'use $queryRaw with a tagged template, or bind parameters'));
@@ -282,7 +333,8 @@ export function astFindings(ts, rel, text, { tags = [], clientFile = false } = {
             const v = unwrap(ts, objectProp(ts, sf, opts, key));
             return !!v && v.kind !== ts.SyntaxKind.FalseKeyword && literalText(ts, v) !== 'none';
           };
-          const missing = ['httpOnly', 'secure', 'sameSite'].filter((k) => !flag(k));
+          const required = /csrf/i.test(cookieName) ? ['secure', 'sameSite'] : ['httpOnly', 'secure', 'sameSite'];
+          const missing = required.filter((k) => !flag(k));
           if (missing.length) {
             findings.push(finding('WD-SEC-COOKIE', line(node), `cookie "${cookieName}" set without ${missing.join(', ')}`, 'set httpOnly: true, secure: true and sameSite: "lax" or "strict"'));
           }
@@ -293,7 +345,7 @@ export function astFindings(ts, rel, text, { tags = [], clientFile = false } = {
       if (name === 'Function') findings.push(finding('WD-SEC-EVAL', line(node), 'new Function builds code at runtime', 'write the function explicitly'));
     } else if (ts.isBinaryExpression(node) && [ts.SyntaxKind.EqualsToken, ts.SyntaxKind.PlusEqualsToken].includes(node.operatorToken.kind)) {
       const left = node.left;
-      if (ts.isPropertyAccessExpression(left) && ['innerHTML', 'outerHTML'].includes(left.name.text) && !isLiteral(ts, node.right) && !isSanitizedCall(ts, node.right)) {
+      if (ts.isPropertyAccessExpression(left) && ['innerHTML', 'outerHTML'].includes(left.name.text) && !isLiteral(ts, node.right) && !isSanitizedCall(ts, node.right, sanitizerLocals)) {
         findings.push(finding('WD-SEC-XSS-HTML', line(node), `${left.name.text} assigned a non-literal value`, 'set textContent, or sanitize with DOMPurify.sanitize first'));
       }
       if (ts.isPropertyAccessExpression(left) && left.name.text === 'NODE_TLS_REJECT_UNAUTHORIZED' && /^['"]?0['"]?$/.test(node.right.getText(sf))) {
@@ -302,7 +354,7 @@ export function astFindings(ts, rel, text, { tags = [], clientFile = false } = {
       if (ts.isPropertyAccessExpression(left) && left.name.text === 'onmessage' && isFunctionLike(ts, unwrap(ts, node.right)) && !/\.origin\b/.test(node.right.getText(sf))) {
         findings.push(finding('WD-SEC-POSTMESSAGE', line(node), 'onmessage handler never checks event.origin', 'return early unless event.origin is expected'));
       }
-      if (ts.isElementAccessExpression(left) && requestDerived(left.argumentExpression) && !/__proto__|hasOwn|constructor|allowed|includes\(/.test(functionText(ts, sf, node))) {
+      if (ts.isElementAccessExpression(left) && requestDerived(left.argumentExpression) && !guardsDangerousKey(ts, sf, node, left.argumentExpression)) {
         findings.push(finding('WD-SEC-PROTO', line(node), 'property name taken from request input', 'check the key against an allowlist (and reject __proto__, constructor, prototype)'));
       }
     } else if (ts.isPropertyAssignment(node)) {
@@ -323,7 +375,7 @@ export function astFindings(ts, rel, text, { tags = [], clientFile = false } = {
     } else if (ts.isJsxAttribute(node) && node.name.getText(sf) === 'dangerouslySetInnerHTML') {
       const init = node.initializer && ts.isJsxExpression(node.initializer) ? unwrap(ts, node.initializer.expression) : null;
       const html = init ? unwrap(ts, objectProp(ts, sf, init, '__html')) : null;
-      if (!init || !html || (!isLiteral(ts, html) && !isSanitizedCall(ts, html))) {
+      if (!init || !html || (!isLiteral(ts, html) && !isSanitizedCall(ts, html, sanitizerLocals))) {
         findings.push(finding('WD-SEC-XSS-HTML', line(node), 'dangerouslySetInnerHTML with a non-literal value', 'render text normally, or wrap the value in DOMPurify.sanitize(...)'));
       }
     } else if (ts.isPropertyAccessExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'env') {
@@ -339,10 +391,10 @@ export function astFindings(ts, rel, text, { tags = [], clientFile = false } = {
   if (SFC_EXTENSIONS.has(ext)) {
     const template = templateProjection(text);
     for (const m of template.matchAll(/\sv-html\s*=\s*"([^"]*)"/g)) {
-      if (!SANITIZERS.test(m[1])) findings.push(finding('WD-SEC-XSS-HTML', template.slice(0, m.index).split('\n').length, `v-html="${m[1].slice(0, 40)}" renders unsanitized HTML`, 'render text with {{ }} or bind a value passed through DOMPurify.sanitize'));
+      if (!sanitizedExpressionText(m[1], sanitizerLocals)) findings.push(finding('WD-SEC-XSS-HTML', template.slice(0, m.index).split('\n').length, `v-html="${m[1].slice(0, 40)}" renders unsanitized HTML`, 'render text with {{ }} or bind a value passed through DOMPurify.sanitize'));
     }
     for (const m of template.matchAll(/\{@html\s+([^}]*)\}/g)) {
-      if (!SANITIZERS.test(m[1])) findings.push(finding('WD-SEC-XSS-HTML', template.slice(0, m.index).split('\n').length, `{@html ${m[1].slice(0, 40)}} renders unsanitized HTML`, 'render text normally or sanitize with DOMPurify.sanitize'));
+      if (!sanitizedExpressionText(m[1], sanitizerLocals)) findings.push(finding('WD-SEC-XSS-HTML', template.slice(0, m.index).split('\n').length, `{@html ${m[1].slice(0, 40)}} renders unsanitized HTML`, 'render text normally or sanitize with DOMPurify.sanitize'));
     }
   }
   return findings;

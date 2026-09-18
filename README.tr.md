@@ -1,209 +1,226 @@
 # web-dev
 
-Web geliştirmeyi disiplinli ve doğrulanabilir bir döngüye çeviren Claude Code plugin'i. JavaScript/TypeScript ile yeni ya da devam eden projelerde çalışır: React, Next.js, Vue, Nuxt, Svelte/SvelteKit, Node, Express, NestJS, Fastify, Hono.
+Web geliştirmeyi bir sohbet değil, bir koşum takımı hâline getiren Claude Code eklentisi.
+Model değişmiyor; değişen şey modelin neyi gördüğü, neyi yazmasına izin verildiği ve neyin
+"bitti" sayıldığı.
 
-[English README](README.md)
+Bir kez kurulur ve makinedeki her dizinde çalışır — projeye yeni başlayacağınız boş klasör dahil.
 
-Model aynı kalır; değişen, etrafındaki **harness**'tır: modelin ne gördüğü, neyi yazabildiği ve neyin "bitti" sayıldığı. 2026 ajan araştırmaları (NVIDIA'nın harness çalışması dahil) aynı sonucu gösteriyor: deterministik kapılar, diskte açık durum, bir supervisor ve damıtılmış bağlam, prompt ifadesinden daha belirleyici. web-dev bu fikirleri web işine uyarlar.
+[English](README.md)
 
-## Neler sağlar
+## Ne sağlar
 
-- **Önce soru, sonra kod.** Kullanıcının isteği kelimesi kelimesine saklanır; AI'ın bunu nasıl anladığı kullanıcıya teyit ettirilir. Sonucu değiştiren her açık nokta 2–4 seçenek, bir öneri ve tek satırlık artı/eksi ile sorulur. Hiçbir şey tahmin edilmez.
-- **Plan modu yerine onaylı brief.** Plan tek bir dosyadadır: hedef, kararlar, kabul kriterleri, riskler, testler ve yazılacak dosyaların tam listesi (manifest). Kullanıcı tek tıkla onaylar; brief değişirse onay düşer.
-- **Hook ile zorlanan kapılar.** Şunlar yazım anında engellenir: manifest dışı yazım, default branch'e yazım, bilinen zafiyet sınıfları, koda eklenen yorumlar, beyan edilmemiş bağımlılıklar ve yıkıcı migration'lar. Tur sonunda o turda değişen her dosya yeniden taranır.
-- **Bayatlamayan haritalar.** Kod, API, UI ve veri haritaları, koddan ve her fonksiyon için AI'ın yazdığı kısa notlardan üretilir. Normalize edilmiş fonksiyon gövdesinin hash'i, hangi notun yenilenmesi gerektiğini tam olarak gösterir. Eksik not varken Stop hook'u turun bitmesine izin vermez.
-- **Frontend ↔ backend bağlantı haritası.** Her route için handler, auth, input şeması, tablolar ve frontend'deki çağıranlar listelenir. Eşleşmeyen çağrılar, auth'suz mutation'lar ve doğrulanmamış input hata olarak görünür.
-- **Responsive ve erişilebilirlik kontrolü.** Playwright her route'u 360, 768 ve 1440 px genişlikte açar. Taşmaları, küçük dokunma alanlarını, küçük metinleri, konsol hatalarını ve axe ihlallerini raporlar, ekran görüntülerini inceleme için saklar.
-- **Supervisor inceleme.** Salt okunur, bağımsız bir reviewer subagent diff'i brief'e göre denetler; bu olmadan task kapanmaz.
-- **Branch → PR → /clear.** Her task kendi branch'inde açıklamalı commit'lerle ilerler, push edilir ve PR açılır. Stop hook'u her şeyi doğruladıktan sonra task'i kapatır ve kullanıcıya `/clear` önerir. Tüm durum diskte olduğu için `/clear` hiçbir şey kaybettirmez.
+- **Kendi kendine devreye girer.** Eklenti kendi hook'larını taşır; bu yüzden açtığınız her
+  dizine bakar: site istediğiniz boş bir klasöre, beş yıllık bir Next.js deposuna ya da uzak
+  durması gereken bir Python projesine. İlk kapı ile sizin aranızda proje başına bir kurulum
+  adımı yoktur.
+- **Koddan önce soru.** Sizin sözlerinizde ya da proje dosyalarında olmayan her şey, tahmin
+  değil, seçenekleri ve bedelleriyle birlikte bir soru olur. Bir hook sorulan her soruyu
+  kaydeder; vermediğiniz bir cevabı iddia eden brief onaylanamaz.
+- **Plan modu yerine brief.** Görevi tek bir onaylı dosya tanımlar: amaç, kararlar, kabul
+  kriterleri, yazılabilecek tam dosya listesi ve dal. Onay, o dosyanın hash'ine bağlıdır —
+  dosyayı değiştirirseniz onay düşer.
+- **Ölçeklenen tören.** Tek satırlık bir CSS düzeltmesi, şema göçünün sürecini ödemez. Üç sınıf
+  (`touch`, `task`, `arch`) döngünün ne kadarının işleyeceğine karar verir.
+- **Tutan kapılar.** Manifest, güvenlik, yorum, varsayılan dal ve bağımlılık kuralları
+  `PreToolUse`'ta uygulanır: bu hook her izin modunda, `bypassPermissions` dahil, izin
+  kontrolünden önce çalışır. Kaynak ağacındaki bir izleyici, hiçbir araçtan geçmeyen yazmaları
+  da görür: `sed -i`, `>`, `tee`, bir üretici ya da kendi editörünüz.
+- **Yalan söylemeyen haritalar.** Kod, API, UI ve veri haritaları koddan üretilir ve sembol
+  başına notlarla birleşir. Gövdesi değişmiş bir notun sembolü `STALE` işaretlenir; işaret
+  satırı silerek değil, onararak temizlenir.
+- **Küçük kalan bağlam.** Her şey diskte durur, bu yüzden görevler arasındaki `/clear` hiçbir
+  şey kaybettirmez. Sonraki oturum kendi durumunu geri okur ve ertelediğiniz işler varsa
+  sormadan önünüze getirir.
 
 ## Gereksinimler
 
-- Claude Code 2.1.200 veya üstü.
-- Node.js 20 veya üstü ve git.
-- Opsiyonel:
-  - PR kontrolü için `gh`.
-  - Derin güvenlik taraması için `gitleaks`, `opengrep` (ya da `semgrep`) ve `osv-scanner`.
-  - `wd responsive` için projede `@playwright/test` ve `@axe-core/playwright`.
-
-macOS, Linux ve Windows'ta çalışır. Hook'lar exec-form ile başlatılan Node script'leridir, arada shell yoktur.
+| | |
+|---|---|
+| Node | 20 veya üzeri |
+| git | güncel bir sürüm |
+| Claude Code | 2.1.200 veya üzeri |
+| İşletim sistemi | macOS, Linux, Windows |
+| İsteğe bağlı | PR için `gh` · responsive kontrol için `@playwright/test` · derin tarama için `gitleaks`, `opengrep`, `osv-scanner` |
 
 ## Kurulum
-
-Bu GitHub reposu hem bir Claude Code plugin marketplace'i (`.claude-plugin/marketplace.json`) hem de plugin'in kendisidir (`.claude-plugin/plugin.json`, `SKILL.md`, `skills/`).
-
-**Claude Code içinden**
-
-```text
-/plugin marketplace add hilmierkamgurbuz/web-dev
-/plugin install web-dev@web-dev
-```
-
-Kurulum özeti isterse ardından `/reload-plugins` çalıştırın.
-
-**Terminalden**
 
 ```bash
 claude plugin marketplace add hilmierkamgurbuz/web-dev
 claude plugin install web-dev@web-dev
-claude plugin list
 ```
 
-**Belirli bir sürüme sabitlemek** için marketplace'i `main` yerine bir sürüm etiketinden ekleyin:
+Kurulumun tamamı budur. Hook'lar bir sonraki oturumda her yerde çalışır.
+
+Ardından, makine başına bir kez, haritaların kurulduğu sabitlenmiş TypeScript ayrıştırıcısını
+kurun:
 
 ```bash
-claude plugin marketplace add https://github.com/hilmierkamgurbuz/web-dev.git#web-dev--v1.1.0
+claude   # herhangi bir projede
+> /web-dev:init
 ```
 
-**Güncellemek**
+### Var olan bir projeyi devralmak
 
-```bash
-claude plugin marketplace update web-dev
-claude plugin update web-dev@web-dev
-```
+Claude Code'u depoda açın ve ne yapmak istediğinizi söyleyin. Koşum takımı, durumu olmayan bir
+JavaScript/TypeScript projesi gördüğünü anlar ve sizi devralma akışına sokar: yığını tespit
+eder, haritaları kurar, planı tersine mühendislikle çıkarır, ürün ve yığın kayıtlarını
+onaylatır ve hepsini tek bir pull request olarak teslim eder.
 
-Güncellemeden sonra her projede `/web-dev:init`'i tekrar çalıştırın; projedeki hook'lar yeni sürüme eşitlenir.
-
-**Kaldırmak**
-
-```bash
-claude plugin uninstall web-dev@web-dev
-claude plugin marketplace remove web-dev
-```
-
-**Takım için**: `/web-dev:init` projenin `.claude/settings.json` dosyasına aşağıdaki ayarı yazar. Repoyu klonlayıp klasörü güvenilir olarak işaretleyen herkese marketplace ve plugin otomatik önerilir. Böylece hook'lar, onları açıklayan skill olmadan hiç çalışmaz.
-
-```json
-{
-  "extraKnownMarketplaces": {
-    "web-dev": { "source": { "source": "github", "repo": "hilmierkamgurbuz/web-dev" } }
-  },
-  "enabledPlugins": { "web-dev@web-dev": true }
-}
-```
-
-**Yerel kopyadan**: `claude plugin marketplace add /path/to/web-dev`, ardından `claude plugin install web-dev@web-dev`.
+Yeni proje için Claude Code'u boş bir dizinde açıp uygulamayı anlatın. Önce intake, sonra yığın
+kararları, sonra iskelet.
 
 ## Kullanım
 
-- **Yeni proje:** Uygulamayı anlatın. Skill `procedures/bootstrap.md` akışını izler: ürün soruları, seçenekli stack kararları, blueprint, scaffold, harness kurulumu, ardından ilk feature.
-- **Mevcut proje:** Adopt edilmesini isteyin. `procedures/adopt.md` harness'ı kurar, haritaları üretir, notları paralel subagent'larla yazar, blueprint taslağını onayınıza sunar ve bir güvenlik başlangıç raporu çıkarır.
-
-web-dev'i bir projede etkinleştirmek için projede Claude Code'u açın ve şunu çalıştırın:
-
-```text
-/web-dev:init
-```
-
-Bu komut Node ve git'i kontrol eder, harness'ı kurar (hook'lar, agent'lar, kurallar, config, haritalar ve sabit sürüm parser) ve neyi commit'lemeniz gerektiğini söyler. Bootstrap ve adopt akışları da aynı kurulum script'ini kullanır: `node ${CLAUDE_PLUGIN_ROOT}/scripts/init_project.mjs <proje-kökü> --setup`.
-
-Kurulumdan sonra projede yeni bir Claude Code oturumu açın ve trust diyaloğunu onaylayın. Ardından iki şeyi kontrol edin:
-- `/hooks` şu yedi olayı listelemeli: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart, SubagentStop, Stop.
-- Oturum başında `[web-dev]` raporu görünmeli.
-
-## Task döngüsü
+Ne istediğinizi söyleyin; hatırlanacak bir komut yok.
 
 ```
-locate + intake → brief → onay → build → verify → close → /clear
+bir fırın için iletişim formu olan bir tanıtım sayfası yap
+sepete Stripe ödemesi ekle
+son kurulumdan sonra build bozuldu
+kaldığımız yerden devam et
 ```
 
-1. **Locate** — task'in nerede yaşadığını haritalar sabit sırayla cevaplar: index → blueprint → katman haritası → codemap shard → satır aralığıyla okuma. Repo taraması asla ilk adım değildir.
-2. **Intake** — birebir istek, kullanıcının teyit ettiği yeniden ifade, ardından `[OPEN]` kalmayana kadar soru turları.
-3. **Brief** — `gates/brief.md` formatında `.claude/web-dev/work/task.md`.
-4. **Onay** — brief hash'ini içeren tek bir AskUserQuestion; ya da tek başına bir satırda `ONAY`/`APPROVE`. Onayı yalnızca hook kaydeder.
-5. **Build** — brief'teki branch'te, yalnızca manifest yollarına yazılır; notlar aynı turda, testler kodla birlikte gelir.
-6. **Verify** — `wd verify` (typecheck, lint, test, build), UI değiştiyse `wd responsive`, `wd check` ve reviewer subagent.
-7. **Close** — postflight, commit, push, PR. Stop hook'u her şeyi kendi kayıtlarından yeniden doğrular, task'i kapatır ve `/clear` önerir.
-
-## Zorlama
-
-| Hook | Ne yapar |
+| Komut | Yapar |
 |---|---|
-| SessionStart | Haritaları artımlı üretir ve en fazla 2000 karakterlik rapor enjekte eder: zorlama, parser, git, task, harita sağlığı, araçlar. `/clear` ve compaction sonrasında yeniden çalışır. |
-| UserPromptSubmit | Tur kaydını başlatır. Yazılı onay token'ını işler, plan modunu tespit eder. Bu oturumda kapanmış bir task varsa `/clear` önerir. |
-| PreToolUse | **Edit/Write:** enforcement dosyaları → default branch → onaylı brief → manifest → sonuç içeriğinin güvenlik, secret, yorum, migration ve bağımlılık taraması. **Bash:** kaynak dosyalara shell ile yazım; git güvenliği (default branch'e commit yok, `--no-verify` yok, default branch'e force push yok, yıkıcı komutlar kullanıcıya sorulur); staged değişikliklerde secret taraması; bağımlılık kapısı; `curl \| sh`. **AskUserQuestion:** önceden doldurulmuş cevapları reddeder. |
-| PostToolUse | Yazılan dosya için eksik notları bildirir, onay cevabını kaydeder. Git işlemleri sonrasında haritaları yeniden üretir; paket değişiklikleri sonrasında dokümanları ve bağımlılık uyarılarını kontrol eder; PR adresini kaydeder. |
-| SubagentStart | Built-in'ler dahil her agent'a harita sözleşmesini ve güncel harita sağlığını verir. |
-| SubagentStop | Reviewer'ın `VERDICT` sonucunu mevcut diff'e bağlayarak kaydeder. |
-| Stop | Turda değişen her dosyayı (shell yazımları dahil) yeniden tarar; not borcu varken ya da manifest dışı değişiklik varken turu bloklar. `closing` durumunda şunları doğrular: verify sonucu, testler, responsive kontrolü, `wd check`, review, kalıcı kayıtlar, push edilmiş temiz ağaç ve açık PR. Aynı blok üç kez tekrarlanırsa kullanıcıya mesaja dönüşür. |
+| `/web-dev:init` | mevcut depoda proje durumunu kurar ya da tazeler |
 
-Plan modu araç olarak kapatılmıştır, worktree izolasyonlu agent'lar reddedilir. `.claude/agents/Explore.md` devredilen aramaların önce haritalardan yapılmasını sağlar.
+## Görev döngüsü
 
-### Güvenlik kuralları
+```
+locate → intake → brief → onay → build → doğrulama → kapanış → /clear
+```
 
-`WD-SEC-EVAL` · `WD-SEC-XSS-HTML` · `WD-SEC-SQL-INTERP` · `WD-SEC-CMD-INTERP` · `WD-SEC-TLS-OFF` · `WD-SEC-JWT` · `WD-SEC-CORS` · `WD-SEC-REDIRECT` · `WD-SEC-SSRF` · `WD-SEC-PATH` · `WD-SEC-PROTO` · `WD-SEC-RANDOM` · `WD-SEC-COOKIE` · `WD-SEC-PUBLIC-ENV` · `WD-SEC-SECRET` · `WD-SEC-HASH` · `WD-SEC-POSTMESSAGE` · `WD-SEC-MIGRATION` · `WD-DEP` · `WD-COMMENT`. Harita seviyesinde ayrıca `WD-API-UNAUTH`, `WD-API-UNVALIDATED`, `WD-API-UNMATCHED` ve `WD-DATA-MULTIWRITER` vardır. Ayrıntılar `procedures/security.md` dosyasında.
+| Adım | Ne olur |
+|---|---|
+| locate | Görevin nerede yaşadığını haritalar söyler. `wd map <yol>` tüm shard'ı değil, tek dosyanın kaydını döner. |
+| intake | İsteğiniz birebir saklanır, size geri anlatılır ve sonucu değiştirecek her belirsizlik seçenekli bir soruya dönüşür. |
+| brief | `.claude/web-dev/work/task.md`: amaç, kararlar, kabul kriterleri, tasarım, risk, doğrulama, dal, manifest. |
+| onay | Kararları ve dosya listesini görür, brief'in hash'ini taşıyan tek bir soruyu onaylarsınız. |
+| build | Yalnızca manifest yolları, yalnızca Edit/Write ile, görev dalında, notlar aynı turda. |
+| doğrulama | `wd verify` tip kontrolü, lint, test ve build çalıştırır. UI değiştiyse `wd responsive` her viewport'ta koşar. |
+| kapanış | Postflight, commit, push, PR. Stop hook'u her şeyi yeniden kontrol eder ve ancak ondan sonra görevi kapalı ilan eder. |
+| /clear | Durum diskte. Temizleyin; sonraki oturum kaldığı yerden devam eder. |
 
-Bir bulgu yalnızca kullanıcının onayladığı brief'teki `Security exceptions:` satırıyla kabul edilebilir. Kodda susturma yorumu yoktur.
+`touch` görevleri intake'i, brief'i ve PR törenini atlar. `arch` görevleri zorunlu bir soru turu
+ve temiz bağlamlı bir inceleme ekler.
+
+## Zorlama katmanı
+
+Eklentiyle gelen iki halka.
+
+**Halka 0** her dizinde çalışır: `SessionStart`, `UserPromptSubmit`, `CwdChanged`, `PreCompact` ve
+`PreToolUse`'un yazma yarısı buranın web-dev alanı olup olmadığına karar verir. Devralınmamış bir
+dizinde yalnızca bakar ve yönlendirir; yapabildiği tek şey, web kaynağına ilk yazmadan önce
+*sormaktır*. Bir Python deposunda hiçbir şey söylemez ve hiçbir şeye mal olmaz (45 ms süreç, sıfır
+token). Devralınmış bir projede aynı `SessionStart` haritaları ve `wd` shim'ini de tazeler.
+
+**Halka 1** `.claude/web-dev/` varsa devreye girer, yoksa milisaniyeler içinde geri döner:
+
+| Hook | Yapar |
+|---|---|
+| `PreToolUse` | manifest dışı yazmaları, açık veren kalıpları, eklenen yorumları, bildirilmemiş bağımlılıkları, yıkıcı göçleri, varsayılan dala commit'i, stdin'den program yiyen yorumlayıcıları ve proje kökü dışına yazmayı engeller |
+| `PostToolUse` | yazmaları, onayları ve soru defterini kaydeder |
+| `PostToolBatch` | grup başına tek harita render'ı ve hâlâ borçlu olunan notlar |
+| `FileChanged` | hiçbir aracın yapmadığı değişiklikler dahil, dosya sistemindeki her değişikliği görür |
+| `PermissionRequest` | yalnızca koşum takımının kendi komutlarını sessizce onaylar |
+| `PostToolUseFailure` | sık görülen bir araç hatasını, onu çözen tek adıma çevirir |
+| `SubagentStart` | her alt ajana harita sırasını ve güncel sağlığı verir |
+| `SubagentStop` | inceleyicinin kararını, incelediği diff'e bağlı olarak kaydeder |
+| `Stop` | kapanış denetimi: doğrulama, testler, responsive, inceleme, kayıtlar, PR — her biri kod değişince geçersizleşen bir hash'e bağlı |
+| `PreCompact` | brief'i, manifest'i ve locate sonucunu sıkıştırma özetine sabitler |
+| `ConfigChange` | neyin zorlandığına karar veren dosyaların görev ortasında değişmesini reddeder |
+| `SessionEnd` | görev durumunu kaydeder |
+
+Bozulan kapı, kapatan kapıdır: hook'un kendisi hata verirse çağrı kontrolsüz geçmez, reddedilir.
+
+### Güvenlik
+
+Zorlanan kurallar taint tabanlıdır: biçime değil, kullanıcının kontrol ettiği verinin tehlikeli
+bir noktaya ulaşmasına bakar. Enjeksiyon, XSS noktaları, yol aşımı, SSRF, prototype pollution,
+açık yönlendirme, zayıf kripto, JWT `none`, kapalı TLS, credentials'lı CORS, güvensiz çerezler,
+istemciye sızan sırlar ve gömülü kimlik bilgileri yazma anında engellenir.
+
+Hiçbir kalıbın karar veremeyeceği şeyler — yetkilendirme, iş mantığı, CSRF, hız sınırı, CSP,
+sessizce yutulan hata yolları — brief'in muhakeme listesinde ve inceleme turunda durur. Temiz
+bir tarama tavan değil tabandır ve koşum takımı bunu aksini ima etmek yerine açıkça söyler.
 
 ## Haritalar
 
-Haritalar `.claude/web-dev/maps/` altına üretilir; bu klasör gitignore'ludur.
+`.claude/web-dev/maps/` altına üretilir, gitignore'dadır, istendiğinde yeniden kurulur. Koddan
+çıkarılan mekanik olgularla, sizin ve modelin yazdığı ve commit'lenen notları birleştirir.
 
-| Harita | Cevapladığı soru |
+| Harita | Neyi cevaplar |
 |---|---|
-| `index.md` | feature → shard, giriş dosyaları, route'lar, sayfalar, tablolar, durum |
-| `codemap-<shard>.md` | her dosya ve isimli fonksiyon/component/hook: imza, satır aralığı, import'lar, kullananlar, db erişimi, çağrılar, not |
-| `apimap.md` | route ↔ handler ↔ auth ↔ input ↔ tablolar ↔ çağıranlar; ayrıca eşleşmeyen, çözülemeyen, ölü, auth'suz ve doğrulanmamış olanlar |
-| `uimap.md` | sayfa → layout'lar → component ağacı, client sınırı, veri, metadata, son responsive kontrolü |
-| `datamap.md` | tablolar ve in-memory store'lar, bunlara yazan ve okuyanlar; env yüzeyi ve bulgular |
+| `index.md` | özellik → shard'lar, giriş dosyaları, rotalar, sayfalar, tablolar, durum |
+| `codemap-<shard>.md` | her adlandırılmış sembol: imza, satır aralığı, import'lar, kim çağırıyor, db erişimi, çağrılar, not |
+| `apimap.md` | rota ↔ handler ↔ auth ↔ girdi şeması ↔ çıktı ↔ tablolar ↔ frontend çağıranlar |
+| `uimap.md` | rota → layout → bileşen ağacı, istemci/sunucu sınırı, veri çekme |
+| `datamap.md` | tablolar, ilişkiler, okuyanlar ve yazanlar, tek-yazan kontrolü, env yüzeyi |
 
-AI'ın yazdığı tek kısım notlardır. `.claude/web-dev/notes/<shard>.md` altında durur, commit'lenir ve `wd note set` ile yazılır. Anahtara göre sıralı tutulduğu için paralel branch'lerde nadiren conflict çıkar.
+Gerçek bir kod tabanında haritalar, anlattıkları kaynağın yaklaşık onda biri kadar yer tutar.
+Bir shard'ı açmak yerine `wd map <yol>` veya `wd find <sembol>` ile okuyun.
 
-## `wd` — harness CLI
+## `wd` — koşum takımı CLI'ı
 
-Proje kökünden `node .claude/hooks/web-dev/wd.mjs <komut>` şeklinde çalıştırılır.
+Proje kökünden `node .claude/web-dev/wd.mjs <komut>` ile çalıştırılır.
 
-| Komut | Amaç |
+| Komut | Yapar |
 |---|---|
-| `maps [--force]` | haritaları üret |
-| `note set` / `note missing` | JSON satırlarından not yaz / eksik notları listele |
-| `task hash` / `task status` | onay için brief hash'i / durum |
-| `check [--draft-blueprint]` | blueprint, harita ve doküman tutarlılığı |
-| `verify` | typecheck, lint, test, build; sonuç Stop hook'u için kaydedilir |
-| `responsive [--path /x]` | ekran görüntülü Playwright viewport ve erişilebilirlik kontrolü |
-| `scan <dosyalar>` / `scan --all --report` | güvenlik taraması |
-| `review-prep` | reviewer için diff ve bağlam |
-| `pr-body` | brief ve sonuçlardan PR açıklaması |
-| `facts check` / `id D\|R` / `setup` | bayat fact'ler, sıradaki id, parser kurulumu |
-
-## Proje dosyaları
-
-| Commit'lenen | Gitignore'lu |
-|---|---|
-| `CLAUDE.md` (`.claude/web-dev/CLAUDE.md`'yi import eder), `.claude/settings.json`, `.claude/hooks/web-dev/`, `.claude/agents/`, `.claude/rules/web-dev-*.md`, `.claude/web-dev/{product,stack,decisions,blueprint}.md`, `notes/`, `facts/`, `config.json`, `shards.json`, `enforce.json` | `.claude/web-dev/{maps,state,work,shots}/` |
-
-- `product.md` kalıcı istekleri (`R-###`) tutar.
-- `stack.md` ve `decisions.md` kararları (`D-###`) tutar; `wd check` bunları `package.json` ve lockfile ile karşılaştırır.
-- `facts/<paket>@<sürüm>.md` sürüme bağlı, damıtılmış framework bilgisidir; lockfile değişince bayat olarak işaretlenir.
-- Task brief'i ve postflight task kapanınca silinir; içerikleri PR'da yaşamaya devam eder.
+| `map <yol>` / `find <sembol>` | tek dosyanın ya da tek sembolün harita satırları |
+| `class` | locate sonucundan görev sınıfı |
+| `defer "<madde>"` | kapsam dışı bir işi `/clear` sonrası için kuyruğa alır |
+| `config set <anahtar> <değer>` | `config.json`'ın zaten tanımladığı tek bir anahtarı değiştirir; kapı bu dosyayı okuduğu için elle düzenlenmez |
+| `maps` | bütün haritaları yeniden üretir |
+| `note set` / `note missing` | stdin JSON'undan not yazar / borçlu olunanları listeler |
+| `task hash` / `task status` | brief hash'i / durum makinesindeki konum |
+| `check` | blueprint ↔ disk ↔ haritalar, dokümanlar ↔ paket sürümleri |
+| `verify` | tip kontrolü, lint, test, build |
+| `responsive` | her viewport'ta kontrol, ekran görüntüleriyle |
+| `scan` | güvenlik, sır ve yorum taraması |
+| `review-prep` / `pr-body` | inceleyicinin diff'i / PR gövdesi |
+| `id D` / `id R` | sıradaki boş karar veya gereksinim id'si |
+| `facts check` | sabitlenmiş sürümü lockfile ile uyuşmayan olgular |
+| `setup` | bu makine için sabitlenmiş ayrıştırıcıyı kurar |
 
 ## Yapılandırma
 
-`.claude/web-dev/config.json` şunları içerir:
-- `defaultBranch`, `git.remote` (yalnızca yerel çalışma için `none`), `git.pullRequest`
-- `commands.{typecheck,lint,test,build,dev}`, `devUrl`
-- `responsive.{viewports,paths,minTapTargetPx,minFontPx}`
-- `generated` glob'ları, `authMarkers`, `validationMarkers`
-- `approval.{labels,tokens}`, `comments.allowedPragmas`
-- `security.{gitleaks,opengrep,osvScanner}` (`auto`/`off`)
+`.claude/web-dev/config.json` varsayılan dalı, paket yöneticisini, doğrulama komutlarını,
+responsive viewport'ları, haritanın tanıdığı auth ve doğrulama işaretçilerini, onay etiketlerini
+ve token'larını, izin verilen yorum pragmalarını ve hangi isteğe bağlı güvenlik araçlarının
+kullanılacağını tutar. `.claude/web-dev/shards.json` yol desenlerini codemap shard'larına eşler ve
+bir shard'ın boyutunu sınırlar. İkisi de brief üzerinden değil, yalnızca sizin tarafınızdan
+(veya `wd config set` ile) değişir.
 
-Bu dosyayı bir brief üzerinden değiştirin: kapı bu dosyayı okur.
+## Proje dosyaları
 
-## Plugin geliştirme
+| Commit'lenen | Üretilen |
+|---|---|
+| `CLAUDE.md`, `.claude/settings.json`, `.claude/agents/`, `.claude/rules/web-dev-*.md`, `.claude/web-dev/{product,stack,decisions,blueprint}.md`, `notes/`, `facts/`, `config.json`, `enforce.json`, `shards.json` | `.claude/web-dev/{maps,state,work,shots}/`, `wd.mjs`, `statusline.mjs` |
+
+`enforce.json` kapıyı her klonda kuran dosyadır. `config.json` kapının neyi zorladığına karar
+verir; bu yüzden ikisi de brief üzerinden değiştirilemez, yalnızca siz değiştirirsiniz.
+
+## Eklentiyi geliştirme
 
 ```bash
-WEB_DEV_CACHE=/tmp/wd-cache node -e "import('./scripts/lib/ts.mjs').then(m => m.installParser())"
-WEB_DEV_CACHE=/tmp/wd-cache node --test tests/
+npm run setup   # sabitlenmiş ayrıştırıcıyı kullanıcı önbelleğine kurar
+npm test        # node:test — kapı, güvenlik, haritalar, notlar, durum, kablolama
 ```
 
-Parser sürümü sabittir: `typescript@6.0.3`, yani JavaScript compiler API'sine sahip son sürüm. Kullanıcı başına bir önbellekte durur; bu sayede proje TypeScript'i yükseltse bile harita hash'leri değişmez. `tests/fixtures/` şu projeleri kapsar: Next.js + Prisma, Vite React + Express + Drizzle monorepo, Nuxt ve tRPC'li SvelteKit.
+`npm test` düşmanca bir takım içerir: denetimin bulduğu her atlatma yolunun onu deneyen bir
+testi vardır ve bir kablolama testi, her hook yolunun, yer tutucunun ve yönlendirilen dosyanın
+gerçekten diskte çözüldüğünü doğrular.
 
 ## Bilinen sınırlar
 
-- Shell ile yazım kontrolü tam bir shell parser'ı değil, heuristiktir. Kaçırdığı yazımları Stop hook'unun tur sonu taraması yakalar, ama tur içinde kısa bir pencere kalır.
-- Mantık seviyesindeki zafiyetler (yanlış yetki kuralı, iş kuralı hatası gibi) desenle yakalanamaz. Brief'in risk bölümü, güvenlik kontrol listesi ve reviewer bunları azaltır; olmadıklarını kanıtlamaz.
-- Tanınmayan routing veya client desenleri `## Unresolved` bölümüne düşer: görünürler ama bağlanmazlar.
-- Hook'lar kapalıysa (`disableAllHooks`) ya da workspace güvenilir değilse hiçbir kapı çalışmaz. İşaret, `[web-dev]` raporunun görünmemesidir; skill bu rapor olmadan kod yazmaz.
+- Koşum takımı sizin yerinize `/clear` çalıştıramaz — hiçbir hook çalıştıramaz. Yaptığı şey,
+  temizlemeyi bedelsiz kılmak, zamanı geldiğini söylemek ve öbür tarafta işi kaldığı yerden
+  almaktır.
+- `wd responsive` projede `@playwright/test` ister.
+- Derin tarama `gitleaks`, `opengrep` veya `osv-scanner` kurulu değilse sessizdir.
+- Statik analiz yetkilendirme ve iş mantığı hatalarını göremez. Muhakeme listesi ve inceleme
+  tam olarak bunun içindir.
 
 ## Lisans
 

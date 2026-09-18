@@ -1,16 +1,69 @@
-export function stripHeredocs(command) {
-  const out = [];
-  let terminator = null;
-  for (const line of command.split('\n')) {
-    if (terminator) {
-      if (line.trim() === terminator) terminator = null;
+export function findHeredocOps(text) {
+  const ops = [];
+  let quote = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quote) {
+      if (c === '\\' && quote === '"') {
+        i++;
+      } else if (c === quote) {
+        quote = null;
+      }
       continue;
     }
-    out.push(line);
-    const m = /<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(line);
-    if (m) terminator = m[2];
+    if (c === "'" || c === '"') {
+      quote = c;
+      continue;
+    }
+    if (c === '<' && text[i + 1] === '<' && text[i + 2] !== '<') {
+      let j = i + 2;
+      let stripTabs = false;
+      if (text[j] === '-') {
+        stripTabs = true;
+        j++;
+      }
+      while (text[j] === ' ' || text[j] === '\t') j++;
+      let quoteChar = null;
+      if (text[j] === "'" || text[j] === '"') {
+        quoteChar = text[j];
+        j++;
+      }
+      const start = j;
+      while (j < text.length && /[A-Za-z0-9_]/.test(text[j])) j++;
+      const terminator = text.slice(start, j);
+      if (terminator && /^[A-Za-z_]/.test(terminator)) {
+        if (quoteChar && text[j] === quoteChar) j++;
+        ops.push({ stripTabs, quoted: !!quoteChar, terminator });
+        i = j - 1;
+      }
+    }
   }
-  return out.join('\n');
+  return ops;
+}
+
+export function extractHeredocs(command) {
+  const shellLines = [];
+  const heredocs = [];
+  const queue = [];
+  let current = null;
+  for (const line of command.split('\n')) {
+    if (current) {
+      const compare = (current.stripTabs ? line.replace(/^\t+/, '') : line).replace(/\r$/, '');
+      if (compare === current.terminator) {
+        heredocs.push({ terminator: current.terminator, quoted: current.quoted, stripTabs: current.stripTabs, body: current.lines.join('\n') });
+        current = queue.shift() || null;
+        continue;
+      }
+      current.lines.push(current.stripTabs ? line.replace(/^\t+/, '') : line);
+      continue;
+    }
+    shellLines.push(line);
+    for (const op of findHeredocOps(line)) queue.push({ ...op, lines: [] });
+    if (queue.length) current = queue.shift();
+  }
+  if (current) heredocs.push({ terminator: current.terminator, quoted: current.quoted, stripTabs: current.stripTabs, body: current.lines.join('\n'), unterminated: true });
+  for (const pending of queue) heredocs.push({ terminator: pending.terminator, quoted: pending.quoted, stripTabs: pending.stripTabs, body: pending.lines.join('\n'), unterminated: true });
+  return { shell: shellLines.join('\n'), heredocs };
 }
 
 export function splitCommands(command) {

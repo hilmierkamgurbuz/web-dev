@@ -28,19 +28,16 @@ Input: the user's description of the app. Output: the artifacts below, each appr
 6. **Repository**:
    - `git init -b main`
    - Ask where the remote lives, with options: private GitHub repo via `gh repo create <name> --private --source . --remote origin`, public repo, existing remote URL, or local only.
-   - Record the answer in `config.json` `git`.
+   - Record the answer with `wd config set git.remote <origin|none>` and `wd config set git.pullRequest <true|false>` — `config.json` is not hand-edited, because the gate reads it.
 7. **Scaffold** with the framework's official CLI in non-interactive mode, using the flags that match the decisions (for example `create-next-app`, `npm create vite@latest`, `npx nuxi init`, `npx sv create`, `npx @nestjs/cli new`):
    - Then install `typescript`, the test runner, `@playwright/test` and `@axe-core/playwright` as devDependencies.
-   - Commit `chore: scaffold` on the default branch. This commit is the **baseline**: comment and pattern rules apply to changes after it, never to the generator's own output.
-8. **Install the harness** with `node <skill dir>/scripts/init_project.mjs <project root> --setup`, the same installer as `/web-dev:init`:
-   - It writes `.claude/settings.json`, the hooks, agents, rules, `config.json`, `shards.json`, `enforce.json` and the gitignore lines, and records the baseline.
-   - Run `wd setup` once per machine to install the pinned parser.
+   - Commit `chore: scaffold` on the default branch. This commit is the **baseline**: the comment and pattern rules apply to changes after it, never to the generator's own output.
+   - The scaffold deliberately runs before step 8, so no manifest exists yet and the generator writes freely. That is the one point in a project's life where source is written outside an approved brief, and it is why the commit that captures it is the baseline.
+8. **Install the harness** with `node ${CLAUDE_PLUGIN_ROOT}/scripts/init_project.mjs <project root> --setup`, the same installer as `/web-dev:init`:
+   - It writes the project state (`config.json`, `shards.json`, `enforce.json`, `blueprint.md`, `product.md`, `stack.md`, `decisions.md`, the memory file), the agents, the path rules, the `wd` shim and the gitignore lines, and records the baseline. It installs no hooks — those ship with the plugin and have been enforcing since the session began.
+   - `--setup` installs the pinned parser if this machine lacks it.
    - Commit `chore: add web-dev harness`.
-9. **Verify enforcement**:
-   - The user starts a new Claude Code session in the project, because project hooks load at session start, and accepts the trust dialog.
-   - `/hooks` must list SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart, SubagentStop and Stop.
-   - The `[web-dev]` report must appear in context.
-   - Do not start a feature task before all three hold.
+9. **Verify enforcement**: the manifest gate is armed from the next tool call onwards — `.claude/web-dev/` is what arms it, and step 8 created it. Confirm with `wd task status`. Do not start a feature task before it answers.
 10. **First maps**: run `wd maps` and `wd check`. On a fresh scaffold, the only findings should be INFO lines for blueprint folders not created yet. An ERROR here means the blueprint and the disk already disagree.
 11. **First feature** follows the normal task cycle: branch, brief, approval, PR.
 

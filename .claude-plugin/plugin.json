@@ -1,8 +1,8 @@
 {
   "name": "web-dev",
   "displayName": "web-dev",
-  "version": "1.1.0",
-  "description": "A harness for web application development in JavaScript/TypeScript (React, Next.js, Vue, Nuxt, Svelte, Node, Express, NestJS, Fastify, Hono) — new projects and existing ones. Question-first intake with options, an approved task brief instead of plan mode, hook-enforced gates (manifest, security, no code comments, default-branch protection, dependency approval), self-auditing code/API/UI/data maps with per-function notes that never go stale, Playwright responsive checks, a supervisor review, and a branch → PR → /clear cycle. Requires Node 20+, git and Claude Code v2.1.200+ (macOS, Linux, Windows).",
+  "version": "2.0.0",
+  "description": "A harness for JavaScript/TypeScript web development — new projects and existing ones. It arms itself: the plugin ships its own hooks, so the gates run in every directory with no per-project setup, and the harness engages on an empty folder as readily as on a five-year-old repository. Question-first intake with options, an approved brief instead of plan mode, ceremony scaled to blast radius, hook-enforced manifest/security/comment/branch/dependency gates that hold in every permission mode, a filesystem watch that sees writes no tool gate can, self-auditing code/API/UI/data maps with per-symbol notes that never go stale, responsive checks, a clean-context review, and a branch → PR → /clear cycle. Requires Node 20+, git and Claude Code v2.1.200+.",
   "author": {
     "name": "hilmi erkam gürbüz",
     "url": "https://github.com/hilmierkamgurbuz"
@@ -22,7 +22,8 @@
     "security",
     "codemap",
     "skill",
-    "harness"
+    "harness",
+    "agent"
   ],
   "skills": [
     "./",

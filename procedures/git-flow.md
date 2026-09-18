@@ -1,6 +1,8 @@
 # git-flow — branch, commits, push and PR for every task
 
-The Stop hook will not close a task until the branch is pushed and its PR is open, unless `config.json` `git.remote` is `none` (a local-only decision recorded by the user).
+The Stop hook will not close a `task` or `arch` until the branch is pushed and its PR is open, unless `config.json` `git.remote` is `none` (a local-only decision recorded by the user).
+
+A `touch` still gets its own branch and its own commit — a one-line fix on the default branch is still a change nobody reviewed — but it does not open a PR unless the user asks. Everything below applies to it except the PR section.
 
 ## Start
 

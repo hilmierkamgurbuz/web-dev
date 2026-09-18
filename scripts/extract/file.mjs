@@ -53,6 +53,7 @@ export function emptyAnalysis(rel) {
     locals: [],
     stores: [],
     jsxRoutes: [],
+    constructorProps: [],
     parseDiagnostics: 0,
   };
 }
@@ -83,12 +84,48 @@ function hasModifier(ts, node, kind) {
   return !!node.modifiers?.some((m) => m.kind === kind);
 }
 
+const SECRET_PREFIX = /^(sk-(ant-|proj-)?|sk_live_|rk_live_|pk_live_|whsec_|gh[pousr]_|github_pat_|glpat-|xox[baprs]-|AKIA|ASIA|AIza|npm_|SG\.|eyJ)/;
+
+function shannonEntropy(value) {
+  const counts = new Map();
+  for (const c of value) counts.set(c, (counts.get(c) || 0) + 1);
+  let bits = 0;
+  for (const n of counts.values()) {
+    const p = n / value.length;
+    bits -= p * Math.log2(p);
+  }
+  return bits;
+}
+
+function looksLikeSecret(value) {
+  if (typeof value !== 'string' || value.length < 8) return false;
+  if (SECRET_PREFIX.test(value)) return true;
+  return value.length >= 20 && /[0-9]/.test(value) && /[A-Za-z]/.test(value) && shannonEntropy(value) >= 3.5;
+}
+
+function paramText(ts, sf, p) {
+  const literal = p.initializer ? literalText(ts, p.initializer) : null;
+  if (literal == null || !looksLikeSecret(literal)) return p.getText(sf);
+  const dots = p.dotDotDotToken ? '...' : '';
+  const optional = p.questionToken ? '?' : '';
+  const type = p.type ? `: ${p.type.getText(sf)}` : '';
+  return `${dots}${p.name.getText(sf)}${optional}${type} = …`;
+}
+
 function signatureOf(ts, sf, name, fn) {
   const typeParams = fn.typeParameters?.length ? `<${fn.typeParameters.map((p) => p.getText(sf)).join(', ')}>` : '';
-  const params = (fn.parameters || []).map((p) => p.getText(sf)).join(', ');
+  const params = (fn.parameters || []).map((p) => paramText(ts, sf, p)).join(', ');
   const ret = fn.type ? `: ${fn.type.getText(sf)}` : '';
   const isAsync = hasModifier(ts, fn, ts.SyntaxKind.AsyncKeyword) ? 'async ' : '';
   return collapse(`${isAsync}${name}${typeParams}(${params})${ret}`, 220);
+}
+
+function parameterPropertyType(ts, sf, param) {
+  const isPropertyParam = ['PublicKeyword', 'PrivateKeyword', 'ProtectedKeyword', 'ReadonlyKeyword'].some((k) => hasModifier(ts, param, ts.SyntaxKind[k]));
+  if (!isPropertyParam || !ts.isIdentifier(param.name) || !param.type) return null;
+  const type = param.type;
+  const typeName = ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName) ? type.typeName.text : null;
+  return typeName ? { name: param.name.text, type: typeName } : null;
 }
 
 function innerFunction(ts, call, depth = 0) {
@@ -212,6 +249,10 @@ function collectSymbols(ts, sf, rel, analysis) {
           add(`${className}.${key}`, 'method', member, { fn: member, exported: exported && !isPrivate, skip: member.name });
         } else if (ts.isConstructorDeclaration(member) && member.body) {
           add(`${className}.constructor`, 'method', member, { fn: member, exported: false });
+          for (const param of member.parameters) {
+            const prop = parameterPropertyType(ts, sf, param);
+            if (prop) analysis.constructorProps.push(prop);
+          }
         } else if (ts.isPropertyDeclaration(member) && member.initializer) {
           const value = unwrap(ts, member.initializer);
           if (value && (ts.isArrowFunction(value) || ts.isFunctionExpression(value))) {
@@ -343,6 +384,30 @@ function templateComponents(text, analysis) {
   }
   for (const tag of seen) analysis.jsx.push({ tag, symbol: 'default' });
   if (/<svelte:head>|<Head\b|<title>/.test(template)) analysis.metadata = true;
+}
+
+const ASTRO_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'ALL'];
+
+function astroSegment(segment) {
+  if (/^\[\.\.\..+\]$/.test(segment)) return '{*}';
+  if (/^\[.+\]$/.test(segment)) return '{}';
+  return segment;
+}
+
+function astroFileRoute(rel, analysis) {
+  const m = /(?:^|\/)src\/pages\/(.+)\.(astro|ts|js)$/.exec(rel);
+  if (!m) return;
+  const parts = m[1].split('/');
+  if (parts.some((p) => p.startsWith('_'))) return;
+  if (parts[parts.length - 1] === 'index') parts.pop();
+  const routePath = `/${parts.map(astroSegment).join('/')}`;
+  const names = new Set(analysis.symbols.filter((s) => s.exported).map((s) => s.name).concat(analysis.exports));
+  const methods = ASTRO_METHODS.filter((method) => names.has(method));
+  if (methods.length) {
+    for (const method of methods) analysis.routes.push({ kind: 'http', method, path: routePath, symbol: method, framework: 'astro' });
+  } else if (m[2] === 'astro') {
+    analysis.pages.push({ path: routePath, symbol: 'default', framework: 'astro' });
+  }
 }
 
 const BODY_READERS = new Set(['readBody', 'readValidatedBody', 'readMultipartFormData', 'readFormData', 'readRawBody']);
@@ -509,7 +574,26 @@ export function analyzeFile(ts, rel, text, { tags = [], validationMarkers = [], 
     const expr = call.expression;
     if (expr.kind === ts.SyntaxKind.ImportKeyword) {
       const spec = literalText(ts, call.arguments[0]);
-      if (spec) analysis.imports.push({ spec, default: null, namespace: null, named: [], typeOnly: false, dynamic: true });
+      if (!spec) return;
+      const entry = { spec, default: null, namespace: null, named: [], typeOnly: false, dynamic: true };
+      let up = call.parent;
+      while (up && (ts.isAwaitExpression(up) || ts.isParenthesizedExpression(up))) up = up.parent;
+      if (up && ts.isVariableDeclaration(up)) {
+        if (ts.isIdentifier(up.name)) {
+          entry.namespace = up.name.text;
+          importLocals.set(up.name.text, { spec, imported: '*' });
+          topLevel.add(up.name.text);
+        } else if (ts.isObjectBindingPattern(up.name)) {
+          for (const el of up.name.elements) {
+            if (!ts.isIdentifier(el.name)) continue;
+            const imported = el.propertyName && ts.isIdentifier(el.propertyName) ? el.propertyName.text : el.name.text;
+            entry.named.push({ local: el.name.text, imported });
+            importLocals.set(el.name.text, { spec, imported });
+            topLevel.add(el.name.text);
+          }
+        }
+      }
+      analysis.imports.push(entry);
       return;
     }
     const chain = calleeChain(ts, expr);
@@ -701,5 +785,6 @@ export function analyzeFile(ts, rel, text, { tags = [], validationMarkers = [], 
   analysis.routes.push(...fsRoutes.routes);
   analysis.pages.push(...fsRoutes.pages);
   analysis.layouts.push(...fsRoutes.layouts);
+  if (tags.includes('astro')) astroFileRoute(rel, analysis);
   return analysis;
 }

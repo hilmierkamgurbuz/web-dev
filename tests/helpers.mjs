@@ -42,22 +42,29 @@ export function readFile(dir, rel) {
 }
 
 export function initHarness(dir) {
-  const result = sh(dir, process.execPath, [path.join(PLUGIN, 'scripts', 'init_project.mjs'), dir]);
+  const result = sh(dir, process.execPath, [path.join(PLUGIN, 'scripts', 'init_project.mjs'), dir], { env: { ...process.env, CLAUDE_PLUGIN_ROOT: PLUGIN } });
   if (result.status !== 0) throw new Error(`init failed: ${result.stderr || result.stdout}`);
   return result.stdout;
 }
 
 export function runHook(dir, event, input = {}) {
-  const result = sh(dir, process.execPath, [path.join(dir, '.claude', 'hooks', 'web-dev', 'hook.mjs'), event], {
+  const result = sh(dir, process.execPath, [path.join(PLUGIN, 'hooks', 'hook.mjs'), event], {
     input: JSON.stringify({ session_id: 'session-1', cwd: dir, permission_mode: 'default', ...input }),
-    env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+    env: { ...process.env, CLAUDE_PROJECT_DIR: dir, CLAUDE_PLUGIN_ROOT: PLUGIN },
   });
   if (result.status !== 0) throw new Error(`hook ${event} exited ${result.status}: ${result.stderr}`);
-  return result.stdout.trim() ? JSON.parse(result.stdout) : null;
+  const out = result.stdout.trim();
+  if (!out) return null;
+  if (!out.startsWith('{')) return out;
+  try {
+    return JSON.parse(out);
+  } catch {
+    return out;
+  }
 }
 
 export function wd(dir, args, stdin = '') {
-  return sh(dir, process.execPath, [path.join(dir, '.claude', 'hooks', 'web-dev', 'wd.mjs'), ...args], { input: stdin });
+  return sh(dir, process.execPath, [path.join(PLUGIN, 'scripts', 'wd.mjs'), ...args], { input: stdin, env: { ...process.env, CLAUDE_PROJECT_DIR: dir, CLAUDE_PLUGIN_ROOT: PLUGIN } });
 }
 
 export function decisionOf(output) {

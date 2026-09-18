@@ -1,5 +1,6 @@
 const SCRIPT_RE = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
 const STYLE_RE = /<style\b[^>]*>[\s\S]*?<\/style>/gi;
+const FRONTMATTER_RE = /^---(\r?\n)([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 
 function blank(text, start, end) {
   let out = '';
@@ -7,8 +8,18 @@ function blank(text, start, end) {
   return out;
 }
 
+function frontmatterBlock(text) {
+  const match = FRONTMATTER_RE.exec(text);
+  if (!match) return null;
+  const start = match.index + 3 + match[1].length;
+  const end = start + match[2].length;
+  return { start, end, blockEnd: match.index + match[0].length };
+}
+
 export function scriptBlocks(text) {
   const blocks = [];
+  const front = frontmatterBlock(text);
+  if (front) blocks.push({ start: front.start, end: front.end, lang: 'ts', setup: false, module: false });
   SCRIPT_RE.lastIndex = 0;
   let match;
   while ((match = SCRIPT_RE.exec(text))) {
@@ -42,6 +53,8 @@ export function scriptProjection(text) {
 
 export function templateProjection(text) {
   let out = text;
+  const front = frontmatterBlock(text);
+  if (front) out = blank(out, 0, front.blockEnd) + out.slice(front.blockEnd);
   for (const re of [SCRIPT_RE, STYLE_RE]) {
     re.lastIndex = 0;
     out = out.replace(re, (m) => m.replace(/[^\n]/g, ' '));

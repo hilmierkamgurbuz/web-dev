@@ -162,6 +162,9 @@ export function linkProject(root, { files, tags, config, stack }) {
     }
   }
 
+  const constructorTypeOf = new Map();
+  for (const [rel, a] of files) for (const p of a.constructorProps || []) constructorTypeOf.set(`${rel}#${p.name}`, p.type);
+
   const refTarget = (rel, ref) => {
     if (!ref) return null;
     const [root, member] = ref.split('.');
@@ -176,6 +179,13 @@ export function linkProject(root, { files, tags, config, stack }) {
     }
     if (member && symbolOf(rel, `${root}.${member}`)) return { file: rel, symbol: `${root}.${member}` };
     if (symbolOf(rel, root)) return { file: rel, symbol: root };
+    const injectedType = constructorTypeOf.get(`${rel}#${root}`);
+    const typeImport = injectedType ? localImports.get(rel)?.get(injectedType) : null;
+    if (typeImport?.target) {
+      const base = exportTarget(typeImport.target, typeImport.imported);
+      if (base && member && symbolOf(base.file, `${base.symbol}.${member}`)) return { file: base.file, symbol: `${base.symbol}.${member}` };
+      if (!member) return base;
+    }
     return null;
   };
 
@@ -513,9 +523,9 @@ export function linkProject(root, { files, tags, config, stack }) {
   const record = (rel, symbolName, access) => {
     let key = access.via === 'store' ? access.entity : resolveEntity(access.entity);
     if (!key) {
-      if (!['sql', 'knex'].includes(access.via) && tables.size) return;
       key = access.entity;
-      if (!tables.has(key)) tables.set(key, { name: key, table: key, columns: [], source: 'inferred from queries', readers: [], writers: [] });
+      const unresolved = !['sql', 'knex'].includes(access.via);
+      if (!tables.has(key)) tables.set(key, { name: key, table: key, columns: [], source: unresolved ? 'UNRESOLVED' : 'inferred from queries', readers: [], writers: [], unresolved });
       lookup.set(key.toLowerCase(), key);
     }
     const list = access.op === 'w' ? tables.get(key).writers : tables.get(key).readers;

@@ -7,9 +7,10 @@ import { headSha, headShort, statusEntries } from './lib/git.mjs';
 import { sha256 } from './lib/hash.mjs';
 import { exists, mtimeMs, readJson, readText, writeJson, writeText } from './lib/io.mjs';
 import { loadNotes, saveNotes } from './lib/notes.mjs';
+import { withLock } from './lib/lock.mjs';
 import { layout } from './lib/paths.mjs';
 import { analyzeProject, analyzerFingerprint, projectFiles, projectTags } from './lib/project.mjs';
-import { loadShards, shardOf } from './lib/shards.mjs';
+import { estimateTokens, loadShards, partName, shardBudget, shardOf, splitByBudget } from './lib/shards.mjs';
 import { detectStack } from './lib/stack.mjs';
 
 export const RENDER_VERSION = 2;
@@ -70,16 +71,23 @@ export function noteStatus(files, notes, { migrate = false } = {}) {
     }
     for (const [key, note] of [...notes.symbols]) {
       if (present.has(key)) continue;
+      const oldFile = key.split('#')[0];
+      const oldName = key.slice(oldFile.length + 1);
       const candidates = byHash.get(note.h) || [];
-      if (candidates.length === 1) {
-        const target = candidates[0];
+      const oldFileGone = !files.has(oldFile);
+      const corroborated = candidates.filter((target) => {
+        const targetFile = target.split('#')[0];
+        const targetName = target.slice(targetFile.length + 1);
+        return targetName === oldName || targetFile === oldFile || (oldFileGone && candidates.length === 1);
+      });
+      if (corroborated.length === 1) {
+        const target = corroborated[0];
+        const targetFile = target.split('#')[0];
         notes.symbols.delete(key);
         notes.symbols.set(target, { note: note.note, h: note.h, movedFrom: key });
-        byHash.delete(note.h);
-        const oldFile = key.split('#')[0];
-        const newFile = target.split('#')[0];
-        if (oldFile !== newFile && !files.has(oldFile) && notes.files.has(oldFile) && !notes.files.has(newFile)) {
-          notes.files.set(newFile, notes.files.get(oldFile));
+        byHash.set(note.h, byHash.get(note.h).filter((k) => k !== target));
+        if (oldFileGone && notes.files.has(oldFile) && !notes.files.has(targetFile)) {
+          notes.files.set(targetFile, notes.files.get(oldFile));
           notes.files.delete(oldFile);
         }
         migrated = true;
@@ -105,13 +113,62 @@ export function noteStatus(files, notes, { migrate = false } = {}) {
       }
     }
   }
-  return { owed, orphans, migrated, markers };
+  const wrong = owed.filter((entry) => entry.marker !== 'MISSING');
+  return { owed, wrong, orphans, migrated, markers };
 }
 
 function symbolLine(symbol, note, marker, tableName) {
   const db = symbol.db.length ? symbol.db.map((d) => `${d.op} ${tableName(d.entity)}`).join(', ') : '-';
   const calls = symbol.calls.length ? listOf(symbol.calls, 6) : '-';
   return `- ${marker ? `${marker} ` : ''}${symbol.signature} | L${symbol.line}-${symbol.endLine} | ${note?.note ?? '-'} | db: ${db} | calls: ${calls}`;
+}
+
+function fileBlock(rel, a, notes, status, model) {
+  const lines = [];
+  const header = notes.files.get(rel);
+  let missing = a.symbols.length && !headerComplete(header) ? 1 : 0;
+  let stale = 0;
+  let moved = 0;
+  let symbolCount = 0;
+  lines.push(`## ${rel} | ${header?.crit || '?'} | sys: ${header?.sys || '?'} | role: ${header?.role || 'MISSING'}`);
+  lines.push(`imports: ${listOf(model.importEdges.get(rel) || [])} | used-by: ${listOf(model.usedBy.get(rel) || [])}`);
+  if (a.schema) lines.push(`- schema ${a.schema.kind}: ${listOf(a.schema.models.map((m) => (m.table && m.table !== m.name ? `${m.name}→${m.table}` : m.name)), 20)}`);
+  for (const symbol of a.symbols) {
+    symbolCount++;
+    const marker = status.markers.get(`${rel}#${symbol.name}`);
+    if (marker === 'MISSING') missing++;
+    if (marker === 'STALE') stale++;
+    if (marker === 'MOVED') moved++;
+    lines.push(symbolLine(symbol, notes.symbols.get(`${rel}#${symbol.name}`), marker, model.tableName));
+  }
+  return { rel, lines, missing, stale, moved, symbolCount };
+}
+
+function shardMapFiles(L) {
+  try {
+    return fs.readdirSync(L.maps).filter((n) => n.startsWith('codemap-') && n.endsWith('.md')).sort();
+  } catch {
+    return [];
+  }
+}
+
+function blockAt(text, start) {
+  const rest = text.slice(start);
+  const end = rest.indexOf('\n## ', 1);
+  return (end === -1 ? rest : rest.slice(0, end)).trimEnd();
+}
+
+function symbolIdent(line) {
+  const m = /^-\s+(?:[A-Z]+\s+)?(.*?)\s+\|/.exec(line);
+  if (!m) return null;
+  const beforeParen = m[1].split('(')[0].trim().replace(/<.*$/, '');
+  const tokens = beforeParen.split(/\s+/);
+  return tokens[tokens.length - 1] || null;
+}
+
+function symbolMatches(line, name) {
+  const ident = symbolIdent(line);
+  return !!ident && (ident === name || ident.split('.').pop() === name);
 }
 
 function routeLabel(route) {
@@ -138,15 +195,28 @@ function declarationFinder(root) {
   };
 }
 
+function comparable(text) {
+  return text.replace(/^<!-- stamp: \S+ \S+ (status:.*)-->\n/, '<!-- $1-->\n');
+}
+
 function writeIfChanged(file, content) {
-  const body = content.replace(/^<!-- stamp:.*-->\n/, '');
   const prior = readText(file);
-  if (prior != null && prior.replace(/^<!-- stamp:.*-->\n/, '') === body) return false;
+  if (prior != null && comparable(prior) === comparable(content)) return false;
   writeText(file, content);
   return true;
 }
 
-export function renderMaps(root, { force = false } = {}) {
+export function renderMaps(root, options = {}) {
+  const L = layout(root);
+  const signature = mapsSignature(root);
+  if (!options.force && readJson(L.mapsSig, null)?.sig === signature && exists(path.join(L.maps, 'index.md'))) {
+    const cached = readJson(L.healthState, null);
+    if (cached) return { ...cached, cached: true };
+  }
+  return withLock(path.join(L.state, '.maps.lock'), () => renderMapsLocked(root, options), { giveUpMs: 90000 });
+}
+
+function renderMapsLocked(root, { force = false } = {}) {
   const L = layout(root);
   const signature = mapsSignature(root);
   if (!force && readJson(L.mapsSig, null)?.sig === signature && exists(path.join(L.maps, 'index.md'))) {
@@ -188,40 +258,44 @@ export function renderMaps(root, { force = false } = {}) {
     if (!orphanByShard.has(shard)) orphanByShard.set(shard, []);
     orphanByShard.get(shard).push(key);
   }
+  const maxTokens = shardBudget(root);
+  const partOfFile = new Map();
   const writtenMaps = new Set();
   for (const [shard, rels] of [...byShard].sort()) {
-    const lines = [];
-    let missing = 0;
-    let stale = 0;
-    let moved = 0;
-    let symbolCount = 0;
-    for (const rel of rels) {
-      const a = files.get(rel);
-      const header = notes.files.get(rel);
-      if (a.symbols.length && !headerComplete(header)) missing++;
-      lines.push(`## ${rel} | ${header?.crit || '?'} | sys: ${header?.sys || '?'} | role: ${header?.role || 'MISSING'}`);
-      lines.push(`imports: ${listOf(model.importEdges.get(rel) || [])} | used-by: ${listOf(model.usedBy.get(rel) || [])}`);
-      if (a.schema) lines.push(`- schema ${a.schema.kind}: ${listOf(a.schema.models.map((m) => (m.table && m.table !== m.name ? `${m.name}→${m.table}` : m.name)), 20)}`);
-      for (const symbol of a.symbols) {
-        symbolCount++;
-        const marker = status.markers.get(`${rel}#${symbol.name}`);
-        if (marker === 'MISSING') missing++;
-        if (marker === 'STALE') stale++;
-        if (marker === 'MOVED') moved++;
-        lines.push(symbolLine(symbol, noteOf(rel, symbol.name), marker, model.tableName));
-      }
-    }
+    const blocks = rels.map((rel) => fileBlock(rel, files.get(rel), notes, status, model));
+    const entries = blocks.map((b) => ({ rel: b.rel, tokens: estimateTokens(b.lines.join('\n')) }));
+    const parts = splitByBudget(entries, maxTokens);
     const orphans = orphanByShard.get(shard) || [];
-    if (orphans.length) {
-      lines.push('## ORPHAN notes');
-      for (const key of orphans) lines.push(`- ORPHAN ${key} | ${notes.symbols.get(key)?.note || notes.files.get(key)?.role || '-'}`);
-    }
-    const degraded = missing + stale + moved + orphans.length;
-    const statusText = degraded ? `DEGRADED ${missing} missing, ${stale} stale, ${moved} moved, ${orphans.length} orphan` : 'OK';
-    shardHealth[shard] = { files: rels.length, symbols: symbolCount, missing, stale, moved, orphan: orphans.length, status: degraded ? 'DEGRADED' : 'OK' };
-    const file = path.join(L.maps, `codemap-${shard}.md`);
-    writeIfChanged(file, `${stampLine(root, statusText)}\n# codemap: ${shard}\n${lines.join('\n')}\n`);
-    writtenMaps.add(path.basename(file));
+    parts.forEach((part, index) => {
+      const partRels = new Set(part.map((e) => e.rel));
+      const lines = [];
+      let missing = 0;
+      let stale = 0;
+      let moved = 0;
+      let symbolCount = 0;
+      for (const block of blocks) {
+        if (!partRels.has(block.rel)) continue;
+        lines.push(...block.lines);
+        missing += block.missing;
+        stale += block.stale;
+        moved += block.moved;
+        symbolCount += block.symbolCount;
+        partOfFile.set(block.rel, partName(shard, index));
+      }
+      const orphanCount = index === 0 ? orphans.length : 0;
+      if (orphanCount) {
+        lines.push('## ORPHAN notes');
+        for (const key of orphans) lines.push(`- ORPHAN ${key} | ${notes.symbols.get(key)?.note || notes.files.get(key)?.role || '-'}`);
+      }
+      const wrong = stale + moved + orphanCount;
+      const undescribed = missing ? ` ${missing} undescribed` : '';
+      const statusText = wrong ? `DEGRADED ${stale} stale, ${moved} moved, ${orphanCount} orphan${undescribed}` : `OK${undescribed}`;
+      const name = partName(shard, index);
+      shardHealth[name] = { files: part.length, symbols: symbolCount, missing, stale, moved, orphan: orphanCount, status: wrong ? 'DEGRADED' : 'OK' };
+      const file = path.join(L.maps, `codemap-${name}.md`);
+      writeIfChanged(file, `${stampLine(root, statusText)}\n# codemap: ${name}\n${lines.join('\n')}\n`);
+      writtenMaps.add(path.basename(file));
+    });
   }
 
   const routes = [...model.routes].sort((a, b) => routeLabel(a).localeCompare(routeLabel(b)));
@@ -317,12 +391,12 @@ export function renderMaps(root, { force = false } = {}) {
   const indexRows = [];
   for (const sys of [...features].sort()) {
     const sysFiles = fileList.filter((rel) => sysOf(rel) === sys);
-    const shardsOfSys = [...new Set(sysFiles.map((rel) => shardOf(rel, shards)))];
+    const shardsOfSys = [...new Set(sysFiles.map((rel) => partOfFile.get(rel) || shardOf(rel, shards)))];
     const entries = [...sysFiles].sort((a, b) => (critRank[notes.files.get(a)?.crit] || 9) - (critRank[notes.files.get(b)?.crit] || 9) || a.localeCompare(b));
     const sysRoutes = model.routes.filter((r) => sysOf(r.file) === sys).length;
     const sysPages = model.pages.filter((p) => sysOf(p.file) === sys).length;
     const sysTables = model.tables.filter((t) => t.writers.some((w) => sysOf(w.file) === sys) || blueprint.tables.some((bt) => bt.owner === sys && (bt.table === t.table || bt.table === t.name))).map((t) => t.table);
-    const degraded = status.owed.some((o) => sysFiles.includes(o.key.split('#')[0]));
+    const degraded = status.wrong?.some((o) => sysFiles.includes(o.key.split('#')[0])) ?? false;
     const entryText = entries.length ? `${entries.slice(0, 2).join(', ')}${entries.length > 2 ? ` (+${entries.length - 2})` : ''}` : 'UNMAPPED';
     indexRows.push(`| ${sys} | ${listOf(shardsOfSys)} | ${entryText} | ${sysRoutes} | ${sysPages} | ${listOf(sysTables, 5)} | ${!sysFiles.length ? 'PLANNED' : degraded ? 'DEGRADED' : 'OK'} |`);
   }
@@ -345,7 +419,7 @@ export function renderMaps(root, { force = false } = {}) {
     envErrors: envFindings.filter((f) => f.startsWith('ERROR')).length,
     unmapped: unmapped.length,
   };
-  const problems = counts.missing + counts.stale + counts.moved + counts.orphan + counts.unmatched + counts.unauthenticated + counts.unvalidated + counts.multiWriter + counts.envErrors;
+  const problems = counts.stale + counts.moved + counts.orphan + counts.unmatched + counts.unauthenticated + counts.unvalidated + counts.multiWriter + counts.envErrors;
   const overall = problems ? 'DEGRADED' : 'OK';
   const indexBody = [
     '# index',
@@ -400,4 +474,37 @@ export function owedFor(root, rels) {
   const result = analyzeProject(root, { config, tags: projectTags(root, config), only: rels });
   if (!result.ok) return { ok: false, reason: 'parser-missing', owed: [] };
   return { ok: true, owed: noteStatus(result.files, loadNotes(root)).owed };
+}
+
+export function mapForPath(root, relPath) {
+  const health = renderMaps(root);
+  if (health.parser === false) return { ok: false, reason: 'parser-missing' };
+  const L = layout(root);
+  const marker = `## ${relPath} | `;
+  for (const name of shardMapFiles(L)) {
+    const text = readText(path.join(L.maps, name)) || '';
+    const start = text.indexOf(marker);
+    if (start === -1) continue;
+    return { ok: true, shard: name.replace(/^codemap-/, '').replace(/\.md$/, ''), block: blockAt(text, start) };
+  }
+  return { ok: false, reason: 'not-in-maps' };
+}
+
+export function findSymbol(root, name) {
+  const health = renderMaps(root);
+  if (health.parser === false) return { ok: false, reason: 'parser-missing', matches: [] };
+  const L = layout(root);
+  const matches = [];
+  for (const fileName of shardMapFiles(L)) {
+    const text = readText(path.join(L.maps, fileName)) || '';
+    let header = null;
+    for (const line of text.split('\n')) {
+      if (line.startsWith('## ')) {
+        header = line.slice(3).split(' | ')[0];
+        continue;
+      }
+      if (line.startsWith('- ') && symbolMatches(line, name)) matches.push({ file: header, line });
+    }
+  }
+  return { ok: true, matches };
 }

@@ -61,22 +61,33 @@
 ## Rules
 
 - `## Manifest` lists files to be written, with exact paths and no globs. The one exception is `generated:` lines, which cover output produced by a code generator the task runs, such as `prisma generate` or GraphQL codegen. Generated files skip the comment and code-pattern rules but are still secret-scanned.
-- Reading is not restricted by the manifest; locate routes reading.
-- Harness documents (`CLAUDE.md`, `.claude/web-dev/*.md`, `.claude/web-dev/facts/**`, `.claude/rules/web-dev-*.md`, `.claude/web-dev/work/**`) do not need to be in the manifest.
-- Notes are written through `wd note set`, never listed.
-- Every `[OPEN]` must be resolved by the user before approval. A decision the user explicitly delegates is written with `by: delegated` and the recommended option.
-- The Security, Assumptions and Manifest sections are never shortened to fit. If the brief gets long, split the task.
-- `Tests: none` needs the user's explicit approval as a recorded decision in `## Decisions`.
-- A package that is not in the brief's `Dependencies:` cannot be installed, and a destructive migration that is not in `Migrations:` cannot be written. The gate enforces both.
-- A security finding can be accepted only through a line in `Security exceptions:` of an approved brief, never through a code comment.
+- Reading is not restricted by the manifest, and harness documents (`CLAUDE.md`, `.claude/web-dev/**`, `.claude/rules/web-dev-*.md`) never need listing. Notes go through `wd note set`.
+- Every `[OPEN]` is resolved by the user before approval. A decision the user delegates is written `by: delegated` with the recommended option.
+- Security, Assumptions and Manifest are never shortened to fit. A brief that will not fit is two tasks.
+- `Tests: none` needs the user's explicit approval, recorded in `## Decisions`.
+- `.claude/web-dev/config.json` and `.claude/web-dev/enforce.json` can never be manifest paths: they decide what the gate enforces, so only the user edits them.
 - Full example: `examples/01-brief.md`.
 
 ## Asking for approval
 
 1. Run `wd task hash`. It prints the 8-character hash of the current brief.
-2. Show the user a compact summary: goal, acceptance criteria, manifest count, dependencies, security exceptions, migrations and branch.
+2. Show the user, in their language:
+   - the goal and the acceptance criteria, one line each;
+   - **the whole `## Decisions` section, verbatim** — every question, its answer, and who
+     decided it. Approving a brief means approving those decisions, so they are never
+     summarized away or replaced by a count;
+   - the manifest **as a list of paths**, marked `new` or `edit`, never as a count;
+   - dependencies, security exceptions, migrations, and the branch.
 3. Ask one AskUserQuestion:
-   - question: `<summary sentence in the user's language> [web-dev brief <hash8>]`
-   - options: `Approve` (label may be `Onayla` in Turkish) and `Revise`.
-4. Only the hook records approval. If the user picks `Revise`, apply the requested change, then ask again with the new hash.
-5. If AskUserQuestion is unavailable, ask the user to send `APPROVE` or `ONAY` alone on a line.
+   - question: `<one summary sentence in the user's language> [web-dev brief <hash8>]`
+   - options: `Approve` (`Onayla` in Turkish) and `Revise`.
+4. Only the hook records approval. On `Revise`, make the change, then ask again with the
+   new hash — the old approval is already void.
+5. If AskUserQuestion is unavailable, the user sends `APPROVE <hash8>` or `ONAY <hash8>`
+   on a line of its own. A bare `APPROVE` is refused: approval names the exact version it
+   approves, or it approves whatever happens to be on disk at that moment.
+
+A `## Decisions` line marked `by: user` must correspond to a question the user actually
+answered. The hook keeps a ledger of every AskUserQuestion round and refuses approval for
+a brief that claims an answer the ledger does not have. Write `by: delegated` when the
+user told you to decide, and `by: D-###` / `by: R-###` when a recorded decision answers it.

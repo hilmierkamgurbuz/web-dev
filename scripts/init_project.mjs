@@ -8,6 +8,7 @@ import { headSha, isRepo } from './lib/git.mjs';
 import { ensureDir, exists, readJson, readText, writeJson, writeText } from './lib/io.mjs';
 import { layout } from './lib/paths.mjs';
 import { DEFAULT_SHARDS } from './lib/shards.mjs';
+import { SHIM_REL, writeShim } from './lib/shim.mjs';
 import { detectStack } from './lib/stack.mjs';
 import { installParser, loadTs, PARSER_VERSION } from './lib/ts.mjs';
 
@@ -21,16 +22,6 @@ const warnings = [];
 function fatal(message) {
   process.stderr.write(`web-dev init: ${message}\nNothing was written.\n`);
   process.exit(1);
-}
-
-function copyTree(src, dest, filter) {
-  ensureDir(dest);
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const from = path.join(src, entry.name);
-    const to = path.join(dest, entry.name);
-    if (entry.isDirectory()) copyTree(from, to, filter);
-    else if (filter(from)) fs.copyFileSync(from, to);
-  }
 }
 
 function copyIfAbsent(from, to, label) {
@@ -53,10 +44,6 @@ function tailoredShards(tags) {
   return { _comment: 'Path pattern -> codemap shard. First match wins; the last entry is the catch-all. `**/` matches zero or more directories, `*` does not cross `/`.', shards };
 }
 
-function hookEntries(template) {
-  return template.hooks;
-}
-
 function mergeSettings(target, template) {
   const current = readJson(target, null);
   if (!current) {
@@ -67,11 +54,9 @@ function mergeSettings(target, template) {
   const merged = { ...current };
   merged.permissions = { ...(current.permissions || {}) };
   merged.permissions.deny = [...new Set([...(current.permissions?.deny || []), ...template.permissions.deny])];
-  merged.hooks = { ...(current.hooks || {}) };
-  for (const [event, groups] of Object.entries(hookEntries(template))) {
-    const existing = (merged.hooks[event] || []).filter((group) => !(group.hooks || []).some((h) => JSON.stringify(h).includes('hooks/web-dev/hook.mjs')));
-    merged.hooks[event] = [...existing, ...groups];
-  }
+  const stale = Object.entries(merged.hooks || {}).map(([event, groups]) => [event, (groups || []).filter((group) => !(group.hooks || []).some((h) => JSON.stringify(h).includes('hooks/web-dev/hook.mjs')))]);
+  if (stale.length) merged.hooks = Object.fromEntries(stale.filter(([, groups]) => groups.length));
+  if (merged.hooks && !Object.keys(merged.hooks).length) delete merged.hooks;
   if (template.statusLine && !current.statusLine) merged.statusLine = template.statusLine;
   merged.extraKnownMarketplaces = { ...(template.extraKnownMarketplaces || {}), ...(current.extraKnownMarketplaces || {}) };
   merged.enabledPlugins = { ...(template.enabledPlugins || {}), ...(current.enabledPlugins || {}) };
@@ -105,11 +90,15 @@ log(`web-dev init → ${target}`);
 log(`detected: ${stack.tags.join(', ') || 'no known frameworks'} · package manager ${stack.packageManager}${stack.workspaces.length ? ` · workspaces ${stack.workspaces.join(', ')}` : ''} · default branch ${stack.defaultBranch}`);
 log(`commands: ${Object.entries(stack.commands).map(([k, v]) => `${k}=${v || '∅'}`).join(' · ')}`);
 
-log('\nenforcement layer (always refreshed):');
-fs.rmSync(L.hooks, { recursive: true, force: true });
-copyTree(HERE, L.hooks, (file) => /\.(mjs|yml)$/.test(file) && path.basename(file) !== 'init_project.mjs');
-fs.copyFileSync(path.join(TEMPLATES, 'statusline.mjs'), path.join(L.hooks, 'statusline.mjs'));
-log('  wrote    .claude/hooks/web-dev/');
+log('\nharness link (the gates already run; this only gives the project a CLI):');
+if (exists(L.hooks)) {
+  fs.rmSync(L.hooks, { recursive: true, force: true });
+  log('  removed  .claude/hooks/web-dev/ (v1 copied the scripts here; v2 runs them from the plugin, so the copy can no longer go stale)');
+}
+writeShim(target, PLUGIN);
+log(`  wrote    ${SHIM_REL} → ${path.join(PLUGIN, 'scripts', 'wd.mjs')}`);
+fs.copyFileSync(path.join(TEMPLATES, 'statusline.mjs'), path.join(L.wd, 'statusline.mjs'));
+log('  wrote    .claude/web-dev/statusline.mjs');
 for (const agent of ['web-dev-reviewer.md', 'web-dev-annotator.md']) {
   ensureDir(L.agents);
   fs.copyFileSync(path.join(TEMPLATES, 'agents', agent), path.join(L.agents, agent));
@@ -125,7 +114,7 @@ if (exists(exploreTarget) && readText(exploreTarget) !== readText(path.join(TEMP
 
 const settingsTemplate = readJson(path.join(TEMPLATES, 'settings.json'), null);
 const userSettings = readJson(path.join(os.homedir(), '.claude', 'settings.json'), {}) || {};
-if (!userSettings.statusLine) settingsTemplate.statusLine = { type: 'command', command: 'node .claude/hooks/web-dev/statusline.mjs' };
+if (!userSettings.statusLine) settingsTemplate.statusLine = { type: 'command', command: 'node .claude/web-dev/statusline.mjs' };
 log(`  settings .claude/settings.json ${mergeSettings(L.settings, settingsTemplate)}`);
 copyIfAbsent(path.join(TEMPLATES, 'enforce.json'), L.enforce, '.claude/web-dev/enforce.json');
 
@@ -182,7 +171,7 @@ if (!ts && wantSetup) {
   log(`  installing parser typescript@${PARSER_VERSION} into the user cache…`);
   ts = installParser({ quiet: true });
 }
-log(`  parser   ${ts ? `typescript ${PARSER_VERSION} ready` : 'missing — run: node .claude/hooks/web-dev/wd.mjs setup'}`);
+log(`  parser   ${ts ? `typescript ${PARSER_VERSION} ready` : 'missing — run: node .claude/web-dev/wd.mjs setup'}`);
 for (const file of [path.join(os.homedir(), '.claude', 'settings.json'), L.settings, path.join(L.claude, 'settings.local.json')]) {
   if (readJson(file, {})?.disableAllHooks === true) warnings.push(`${file} sets disableAllHooks: true — no web-dev gate will run`);
 }
@@ -205,6 +194,6 @@ for (const w of warnings) log(`  warning  ${w}`);
 log(`
 next:
   1. commit the harness: git add .claude CLAUDE.md .gitignore && git commit -m "chore: add web-dev harness"
-  2. start a new Claude Code session in this directory and accept the trust dialog
-  3. /hooks must list SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart, SubagentStop and Stop
-  4. the [web-dev] report must appear at session start; then follow procedures/adopt.md or bootstrap.md`);
+  2. the gates are already live in this session — .claude/web-dev/ is what arms them, and it now exists
+  3. the [web-dev] line appears at the start of the next session; /hooks lists the plugin hooks if you want to see them
+  4. continue with procedures/adopt.md for an existing codebase, or procedures/bootstrap.md for a new one`);

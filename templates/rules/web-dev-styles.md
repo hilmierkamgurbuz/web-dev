@@ -10,6 +10,7 @@ paths:
   - "**/*.jsx"
   - "**/*.vue"
   - "**/*.svelte"
+  - "**/*.astro"
 ---
 
 # Style conventions (web-dev)

@@ -4,7 +4,7 @@ import { layout } from '../lib/paths.mjs';
 
 const CONTRACT = [
   'web-dev map contract for this project:',
-  'Locations are answered from .claude/web-dev/maps/ in a fixed order: index.md, then .claude/web-dev/blueprint.md, then the layer map involved (apimap.md for endpoints and their callers, uimap.md for pages and component trees, datamap.md for tables, writers and env), then codemap-<shard>.md.',
+  'Locations are answered from .claude/web-dev/maps/ in a fixed order: index.md, then .claude/web-dev/blueprint.md, then the layer map involved (apimap.md for endpoints and their callers, uimap.md for pages and component trees, datamap.md for tables, writers and env), then `node .claude/web-dev/wd.mjs map <path>` for one file or `wd find <symbol>` for one name. Open a whole codemap-<shard>.md only when the work spans the shard.',
   'Codemap symbol lines carry L<start>-<end> ranges, so source is read with Read offset/limit for just those lines.',
   'Grep and Glob come last, inside directories the maps already narrowed.',
   'Source code in this project carries no comments; the explanation of each function and connection is the note in the maps.',
@@ -23,7 +23,7 @@ export default async function ({ input, root }) {
     lines.push('Review inputs: .claude/web-dev/work/task.md, .claude/web-dev/state/review/diff.patch and .claude/web-dev/state/review/context.md. The first line of the final answer is VERDICT: PASS or VERDICT: FAIL.');
   }
   if (input.agent_type === 'web-dev-annotator') {
-    lines.push('Notes are written only with node .claude/hooks/web-dev/wd.mjs note set; source files are read-only for this agent.');
+    lines.push('Notes are written only with node .claude/web-dev/wd.mjs note set; source files are read-only for this agent.');
   }
   return context('SubagentStart', truncate(lines.join('\n'), 3000));
 }

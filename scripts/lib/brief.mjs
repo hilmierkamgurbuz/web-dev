@@ -1,3 +1,5 @@
+import { sha256 } from './hash.mjs';
+
 export const REQUIRED_HEADINGS = ['Request (verbatim)', 'Understanding', 'Decisions', 'Acceptance', 'Risk', 'Verification', 'Git', 'Manifest'];
 
 const BRANCH_RE = /^(feat|fix|refactor|perf|test|docs|chore)\/[a-z0-9][a-z0-9-]*$/;
@@ -96,8 +98,44 @@ export function parseBrief(text) {
   };
 }
 
-export function validateBrief(brief) {
+export function decisionsDigest(brief) {
+  return sha256((brief.sections?.get('Decisions') || []).join('\n').trim());
+}
+
+function words(text) {
+  return new Set(String(text || '').toLowerCase().match(/[a-zçğıöşü0-9]{3,}/gi) || []);
+}
+
+function overlaps(a, b) {
+  if (!a.size || !b.size) return false;
+  let shared = 0;
+  for (const word of a) if (b.has(word)) shared++;
+  return shared / Math.min(a.size, b.size) >= 0.5;
+}
+
+export function decisionsBacked(brief, questions) {
+  const lines = brief.sections?.get('Decisions') || [];
+  const asked = (questions || []).map((q) => ({
+    question: words(q.question),
+    answer: words(q.chosen || ''),
+  }));
+  const unbacked = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    const m = /^-\s*Q:\s*(.+?)\s*→\s*A:\s*(.+?)\s*·\s*by:\s*user\s*$/i.exec(line);
+    if (!m) continue;
+    const qWords = words(m[1]);
+    const aWords = words(m[2]);
+    const backed = asked.some((entry) => overlaps(entry.question, qWords) && (!aWords.size || overlaps(entry.answer, aWords)));
+    if (!backed) unbacked.push(line);
+  }
+  return unbacked;
+}
+
+export function validateBrief(brief, questions = null) {
   const problems = [];
+  const harness = (brief.manifest || []).filter((rel) => /^(\.claude\/|CLAUDE\.md$|CLAUDE\.local\.md$)/.test(rel));
+  if (harness.length) problems.push(`the manifest lists harness path(s) ${harness.join(', ')}: harness documents never need listing, and the files that decide what is enforced are changed only by the user`);
   for (const heading of REQUIRED_HEADINGS) if (!brief.headings.includes(heading)) problems.push(`missing heading "## ${heading}"`);
   if (!brief.title) problems.push('missing "# Brief: <task name>" title');
   if (brief.hasOpen) problems.push('brief still contains [OPEN]');
@@ -105,5 +143,6 @@ export function validateBrief(brief) {
   else if (!BRANCH_RE.test(brief.branch)) problems.push(`branch "${brief.branch}" must match <feat|fix|refactor|perf|test|docs|chore>/<kebab-slug>`);
   if (!brief.manifest.length && !brief.generated.length) problems.push('## Manifest lists no paths');
   if (!brief.acceptance.length) problems.push('## Acceptance has no "- [ ]" criteria');
+  if (questions) for (const line of decisionsBacked(brief, questions)) problems.push(`decision has no recorded question backing it: "${line}"`);
   return problems;
 }

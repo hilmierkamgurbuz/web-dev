@@ -1,19 +1,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { currentSymbols, renderMaps } from './build_maps.mjs';
+import { currentSymbols, findSymbol, mapForPath, renderMaps } from './build_maps.mjs';
 import { checkBlueprint, draftBlueprint, formatCheck } from './check_blueprint.mjs';
 import { checkDocs, factsReport, nextId } from './check_docs.mjs';
 import { loadBlueprint } from './lib/blueprint.mjs';
 import { parseBrief, validateBrief } from './lib/brief.mjs';
 import { loadConfig } from './lib/config.mjs';
 import { showFile } from './lib/git.mjs';
-import { ensureDir, exists, findProjectRoot, readJson, readStdin, readText, writeText } from './lib/io.mjs';
+import { ensureDir, exists, findProjectRoot, readJson, readStdin, readText, toPosix, writeText } from './lib/io.mjs';
 import { applyEntries, loadNotes, saveNotes } from './lib/notes.mjs';
 import { layout } from './lib/paths.mjs';
 import { projectFiles, projectTags } from './lib/project.mjs';
 import { branchFiles, buildDiff } from './lib/review.mjs';
 import { loadShards, shardOf } from './lib/shards.mjs';
-import { approval, readTask, readTurn } from './lib/state.mjs';
+import { approval, classifySize, readTask, readTurn, writeTask } from './lib/state.mjs';
 import { installParser, loadTs, PARSER_VERSION } from './lib/ts.mjs';
 import { runResponsive } from './responsive_check.mjs';
 import { isClientPath, scanContent } from './security/scan.mjs';
@@ -27,6 +27,7 @@ const option = (name) => {
   const i = args.indexOf(name);
   return i !== -1 ? args[i + 1] : null;
 };
+const WD_SELF = 'node .claude/web-dev/wd.mjs';
 const out = (text) => process.stdout.write(`${text}\n`);
 const fail = (text, code = 1) => {
   process.stderr.write(`${text}\n`);
@@ -34,7 +35,7 @@ const fail = (text, code = 1) => {
 };
 
 function requireParser() {
-  if (!loadTs()) fail(`the parser is not installed on this machine: node .claude/hooks/web-dev/wd.mjs setup`);
+  if (!loadTs()) fail(`the parser is not installed on this machine: node .claude/web-dev/wd.mjs setup`);
 }
 
 function cmdMaps() {
@@ -297,7 +298,87 @@ function cmdSetup() {
   out(`parser ready: typescript ${PARSER_VERSION}`);
 }
 
+function cmdMap() {
+  requireParser();
+  const target = args.find((a) => !a.startsWith("--"));
+  if (!target) fail("usage: wd map <path>");
+  const entry = mapForPath(root, toPosix(path.relative(root, path.resolve(root, target))));
+  if (!entry.ok) {
+    fail(entry.reason === 'parser-missing'
+      ? `the parser is not installed on this machine: ${WD_SELF} setup`
+      : `${target} is not in any map. Run ${WD_SELF} maps; if it stays missing the file is outside the analysed set (check .claude/web-dev/shards.json and config.generated).`);
+  }
+  out(`# codemap: ${entry.shard}\n${entry.block}`);
+}
+
+function cmdFind() {
+  requireParser();
+  const name = args.find((a) => !a.startsWith("--"));
+  if (!name) fail("usage: wd find <symbol>");
+  const result = findSymbol(root, name);
+  if (!result.ok) fail(`the parser is not installed on this machine: ${WD_SELF} setup`);
+  if (!result.matches.length) fail(`no symbol named ${name} is in the maps. It may be unexported, generated, or not yet rendered: ${WD_SELF} maps.`);
+  for (const hit of result.matches) out(`${hit.file}\n${hit.line}`);
+}
+
+function cmdClass() {
+  const locate = readText(L.locate);
+  const brief = exists(L.task) ? parseBrief(readText(L.task)) : null;
+  const result = classifySize(locate, brief);
+  out(`${result.size}\n${result.reasons.map((r) => `- ${r}`).join("\n")}`);
+  writeTask(root, { size: result.size });
+}
+
+function cmdConfig() {
+  const [action, key, ...rest] = args.filter((a) => !a.startsWith('--'));
+  const current = readJson(L.config, null);
+  if (!current) fail('no .claude/web-dev/config.json: run the installer first');
+  if (action !== 'set') {
+    out(JSON.stringify(current, null, 2));
+    return;
+  }
+  if (!key) fail('usage: wd config set <dotted.key> <value>');
+  const value = rest.join(' ');
+  if (!value) fail(`usage: wd config set ${key} <value>`);
+  const parts = key.split('.');
+  if (parts[0].startsWith('_')) fail('keys starting with _ are comments and are not settable');
+  let node = current;
+  for (const part of parts.slice(0, -1)) {
+    if (typeof node[part] !== 'object' || node[part] === null) fail(`${key} is not a settable path: ${part} does not hold an object`);
+    node = node[part];
+  }
+  const leaf = parts.at(-1);
+  if (!(leaf in node)) fail(`${key} is not a key config.json already defines; the gate reads this file, so new keys are added by the user, not by a command`);
+  let parsed = value;
+  if (value === 'true' || value === 'false') parsed = value === 'true';
+  else if (/^-?\d+$/.test(value)) parsed = Number(value);
+  else if (value.startsWith('[') || value.startsWith('{')) {
+    try { parsed = JSON.parse(value); } catch { fail(`${value} is not valid JSON`); }
+  }
+  if (typeof parsed !== typeof node[leaf] && node[leaf] !== null && !Array.isArray(node[leaf])) {
+    fail(`${key} holds a ${Array.isArray(node[leaf]) ? 'list' : typeof node[leaf]}; ${JSON.stringify(parsed)} is a ${typeof parsed}`);
+  }
+  const before = node[leaf];
+  node[leaf] = parsed;
+  writeText(L.config, `${JSON.stringify(current, null, 2)}\n`);
+  out(`config.json ${key}: ${JSON.stringify(before)} → ${JSON.stringify(parsed)}`);
+}
+
+function cmdDefer() {
+  const item = args.filter((a) => !a.startsWith("--")).join(" ").trim();
+  if (!item) fail(`usage: wd defer "<what was left out of scope>"`);
+  ensureDir(path.dirname(L.deferred));
+  const current = readText(L.deferred) || "";
+  writeText(L.deferred, `${current.replace(/\s*$/, "")}${current ? "\n" : ""}- ${item}\n`);
+  out(`deferred: ${item}`);
+}
+
 const HELP = `wd — web-dev harness CLI (run from the project root)
+  map <path>                     one file's map entry — the default way to read a map
+  find <symbol>                  every map line for a symbol name
+  class                          the task class (touch | task | arch) from the locate result
+  config [set <key> <value>]     read config.json, or change one key it already defines
+  defer "<item>"                 queue something out of scope for after /clear
   maps [--force]                 render maps
   note set < jsonl               write notes (keys: path#symbol or path)
   note missing [--shard s] [--turn]
@@ -313,6 +394,11 @@ const HELP = `wd — web-dev harness CLI (run from the project root)
   setup                          install the pinned parser for this machine`;
 
 const commands = {
+  map: cmdMap,
+  find: cmdFind,
+  class: cmdClass,
+  config: cmdConfig,
+  defer: cmdDefer,
   maps: cmdMaps,
   note: cmdNote,
   task: cmdTask,

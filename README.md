@@ -1,206 +1,233 @@
 # web-dev
 
-A Claude Code plugin that turns web development into a disciplined, verifiable loop. It covers new and existing projects in JavaScript/TypeScript: React, Next.js, Vue, Nuxt, Svelte/SvelteKit, Node, Express, NestJS, Fastify and Hono.
+A Claude Code plugin that turns web development into a harness rather than a conversation.
+The model does not change. What changes is what it sees, what it is allowed to write, and
+what counts as done.
 
-[Türkçe README](README.tr.md)
+Install it once, and it is running in every directory on the machine — including an empty one
+you are about to start a project in.
 
-The model stays the same. What changes is the **harness** around it: what the model sees, what it may write, and what counts as done. Agent research in 2026 (NVIDIA's harness work among it) keeps showing that deterministic guardrails, explicit state on disk, a supervisor and distilled context matter more than prompt wording. web-dev packages those ideas for web work.
+[Türkçe](README.tr.md)
 
 ## What you get
 
-- **Question-first intake.** The user's words are kept verbatim, and the AI's reading of them is confirmed. Every open point that changes the result is asked with 2–4 options, a recommendation and a one-line pro/con. Nothing is guessed.
-- **An approved brief instead of plan mode.** One file holds the plan: goal, decisions, acceptance criteria, risks, tests and the exact manifest of files to write. The user approves it with a click. Editing it voids the approval.
-- **Hook-enforced gates.** Writes outside the manifest, writes on the default branch, known vulnerability classes, added code comments, undeclared dependencies and destructive migrations are all blocked at write time. Everything changed during a turn is re-checked when the turn ends.
-- **Maps that do not go stale.** Code, API, UI and data maps are rendered from the code plus short AI-written notes per function. Hashes on normalized function bodies mark exactly which notes need a refresh, and the Stop hook will not end a turn while notes are owed.
-- **Frontend ↔ backend connection map.** Every route has its handler, auth, input schema, tables and frontend callers. Unmatched calls, unauthenticated mutations and unvalidated input surface as errors.
-- **Responsive and accessibility checks.** Playwright visits each route at 360, 768 and 1440 px, reports overflow, small tap targets, small text, console errors and axe violations, and saves screenshots for review.
-- **Supervisor review.** An independent read-only reviewer subagent checks the diff against the brief before the task can close.
-- **Branch → PR → /clear.** Each task gets its own branch, descriptive commits, a push and a PR. When the Stop hook has verified everything, it closes the task and tells the user to `/clear`. All state lives on disk, so clearing loses nothing.
+- **It engages by itself.** The plugin ships its own hooks, so the harness looks at every
+  directory you open: an empty folder where you ask for a site, a five-year-old Next.js repo,
+  or a Python project it should stay out of. No per-project setup step stands between you and
+  the first gate.
+- **Questions before code.** Anything that is not in your words or in the project files becomes
+  a question with options and trade-offs, not a guess. A hook records every question you were
+  asked, and a brief that claims an answer you never gave cannot be approved.
+- **A brief instead of plan mode.** One approved file describes the task: the goal, the
+  decisions, the acceptance criteria, the exact files that may be written, and the branch.
+  Approval is bound to that file's hash — edit it and approval is void.
+- **Ceremony that scales.** A one-line CSS fix does not pay for a schema migration's process.
+  Three classes (`touch`, `task`, `arch`) decide how much of the cycle runs.
+- **Gates that hold.** Manifest, security, comment, default-branch and dependency rules are
+  enforced at `PreToolUse`, which fires before any permission check in every permission mode —
+  including `bypassPermissions`. A watcher on the source tree sees writes that never went
+  through a tool at all: `sed -i`, `>`, `tee`, a generator, or your own editor.
+- **Maps that do not lie.** Code, API, UI and data maps are rendered from the code and merged
+  with per-symbol notes. A note whose symbol changed is marked `STALE`, and the marker is
+  cleared by repairing it, never by deleting the entry.
+- **A context that stays small.** Everything lives on disk, so `/clear` between tasks loses
+  nothing. The next session reads its own state back and, if you queued follow-ups, offers
+  them without being asked.
 
 ## Requirements
 
-- Claude Code 2.1.200 or newer
-- Node.js 20 or newer, and git
-- Optional:
-  - `gh` for PR checks
-  - `gitleaks`, `opengrep` (or `semgrep`) and `osv-scanner` for deeper security scans
-  - `@playwright/test` and `@axe-core/playwright` in the project for `wd responsive`
-
-It runs on macOS, Linux and Windows. The hooks are Node scripts started in exec form, so no shell is involved.
+| | |
+|---|---|
+| Node | 20 or newer |
+| git | any recent version |
+| Claude Code | 2.1.200 or newer |
+| OS | macOS, Linux, Windows |
+| Optional | `gh` for PRs · `@playwright/test` for responsive checks · `gitleaks`, `opengrep`, `osv-scanner` for deeper scanning |
 
 ## Install
-
-This GitHub repository is both a Claude Code plugin marketplace (`.claude-plugin/marketplace.json`) and the plugin itself (`.claude-plugin/plugin.json`, `SKILL.md`, `skills/`).
-
-**Inside Claude Code**
-
-```text
-/plugin marketplace add hilmierkamgurbuz/web-dev
-/plugin install web-dev@web-dev
-```
-
-If the install summary asks for it, run `/reload-plugins`.
-
-**From a terminal**
 
 ```bash
 claude plugin marketplace add hilmierkamgurbuz/web-dev
 claude plugin install web-dev@web-dev
-claude plugin list
 ```
 
-**Pin a release** — add the marketplace from a release tag instead of `main`:
+That is the whole installation. The hooks are live in the next session, everywhere.
+
+Then, once per machine, install the pinned TypeScript parser the maps are built with:
 
 ```bash
-claude plugin marketplace add https://github.com/hilmierkamgurbuz/web-dev.git#web-dev--v1.1.0
+claude   # in any project
+> /web-dev:init
 ```
 
-**Update**
+or directly:
 
 ```bash
-claude plugin marketplace update web-dev
-claude plugin update web-dev@web-dev
+node ~/.claude/plugins/cache/web-dev/web-dev/*/scripts/init_project.mjs . --setup
 ```
 
-After updating, run `/web-dev:init` again in each project so its hooks match the new version.
+### Adopting a project
 
-**Remove**
+Open Claude Code in the repository and say what you want to build or change. The harness sees
+a JavaScript/TypeScript project without its state and routes you through adoption: it detects
+the stack, builds the maps, reverse-engineers a blueprint, asks you to confirm the product and
+stack records, and delivers the whole thing as a pull request.
 
-```bash
-claude plugin uninstall web-dev@web-dev
-claude plugin marketplace remove web-dev
-```
-
-**For a team** — `/web-dev:init` writes the following into the project's `.claude/settings.json`. Everyone who clones the repository and trusts the folder is then offered the marketplace and the plugin, so the hooks never run without the skill that explains them:
-
-```json
-{
-  "extraKnownMarketplaces": {
-    "web-dev": { "source": { "source": "github", "repo": "hilmierkamgurbuz/web-dev" } }
-  },
-  "enabledPlugins": { "web-dev@web-dev": true }
-}
-```
-
-**From a local checkout**: `claude plugin marketplace add /path/to/web-dev`, then `claude plugin install web-dev@web-dev`.
+For a new project, open Claude Code in an empty directory and describe the app. Intake comes
+first, then the stack decisions, then the scaffold.
 
 ## Use
 
-- **New project:** describe the app. The skill runs `procedures/bootstrap.md`: product questions, stack choices with options, blueprint, scaffold, harness install, then the first feature.
-- **Existing project:** ask to adopt it. `procedures/adopt.md` installs the harness, builds the maps, writes the notes with parallel subagents, drafts the blueprint for your confirmation, and reports a security baseline.
+Say what you want. There is no command to remember.
 
-To activate web-dev in a project, open Claude Code in it and run:
-
-```text
-/web-dev:init
+```
+build me a landing page for a bakery, with a contact form
+add Stripe checkout to the cart
+the build is broken after the last install
+continue where we left off
 ```
 
-This checks Node and git, and installs the harness: hooks, agents, rules, config, maps and the pinned parser. It then tells you what to commit. Bootstrap and adoption use the same installer: `node ${CLAUDE_PLUGIN_ROOT}/scripts/init_project.mjs <project-root> --setup`.
+Slash commands exist for the two things worth being explicit about:
 
-After installing, start a new Claude Code session in the project and accept the trust dialog. Then check two things:
-- `/hooks` lists SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart, SubagentStop and Stop.
-- The `[web-dev]` report appears at session start.
+| Command | Does |
+|---|---|
+| `/web-dev:init` | install or refresh the project state in the current repository |
 
 ## The task cycle
 
 ```
-locate + intake → brief → approval → build → verify → close → /clear
+locate → intake → brief → approval → build → verify → close → /clear
 ```
 
-1. **Locate** — the maps answer where the task lives, in a fixed order: index, blueprint, the layer map, the codemap shard, then line-range reads. A repo scan is never the first step.
-2. **Intake** — the verbatim request, a restatement the user confirms, and question rounds until nothing is `[OPEN]`.
-3. **Brief** — `.claude/web-dev/work/task.md` in the format from `gates/brief.md`.
-4. **Approval** — one AskUserQuestion carrying the brief hash, or `APPROVE`/`ONAY` typed on its own line. Only the hook records it.
-5. **Build** — on the brief's branch, only manifest paths, with notes written in the same turn and tests alongside the code.
-6. **Verify** — `wd verify` (typecheck, lint, test, build), `wd responsive` for UI changes, `wd check`, and the reviewer subagent.
-7. **Close** — postflight, commit, push, PR. The Stop hook re-checks everything from its own records, closes the task, and recommends `/clear`.
+| Step | What happens |
+|---|---|
+| locate | The maps say where the task lives. `wd map <path>` returns one file's entry, not a whole shard. |
+| intake | Your request is kept verbatim, restated back to you, and every ambiguity that would change the result becomes a question with options. |
+| brief | `.claude/web-dev/work/task.md`: goal, decisions, acceptance criteria, design, risk, verification, branch, manifest. |
+| approval | You see the decisions and the file list, then approve one question carrying the brief's hash. |
+| build | Only manifest paths, only with Edit/Write, on the task branch, notes written in the same turn. |
+| verify | `wd verify` runs typecheck, lint, tests and build. UI changes run `wd responsive` at every viewport. |
+| close | Postflight, commit, push, PR. The Stop hook re-checks everything and only then reports the task closed. |
+| /clear | State is on disk. Clear, and the next session picks up where this one stopped. |
+
+`touch` tasks skip intake, the brief and the PR ceremony. `arch` tasks add a mandatory question
+round and a clean-context review.
 
 ## Enforcement
 
+Two rings, both shipped with the plugin.
+
+**Ring 0** runs in every directory: `SessionStart`, `UserPromptSubmit`, `CwdChanged`, `PreCompact`
+and the write half of `PreToolUse` decide whether this is web-dev territory at all. In an
+unadopted directory they only look and route — the one thing they can do is *ask* before the first
+write to web source. In a Python repo they say nothing and cost nothing (45 ms of process, no
+tokens). In an adopted project the same `SessionStart` also refreshes the maps and the `wd` shim.
+
+**Ring 1** arms when `.claude/web-dev/` exists and returns in milliseconds when it does not:
+
 | Hook | Does |
 |---|---|
-| SessionStart | Renders maps incrementally and injects a ≤2000-character report: enforcement, parser, git, task, map health, tools. Runs again after `/clear` and compaction. |
-| UserPromptSubmit | Starts the turn record. Handles the typed approval token and detects plan mode. Recommends `/clear` when a task already closed in this session. |
-| PreToolUse | **Edit/Write:** enforcement files, default branch, approved brief, manifest, then a security, secret, comment, migration and dependency scan of the resulting content. **Bash:** shell writes to source files, git safety (no commits on the default branch, no `--no-verify`, no force-pushing the default branch, destructive commands need the user), secret scan of staged changes, dependency gate, `curl \| sh`. **AskUserQuestion:** refuses pre-filled answers. |
-| PostToolUse | Reports notes owed for the written file and records the approval answer. Re-renders maps after git operations, re-checks docs and dependency advisories after package changes, and records the PR URL. |
-| SubagentStart | Gives every agent, the built-ins included, the map contract and the current map health. |
-| SubagentStop | Records the reviewer's `VERDICT` bound to the current diff. |
-| Stop | Re-scans every file changed during the turn, including shell writes, and blocks while notes are owed or a file changed outside the manifest. At `closing`, it verifies verification results, tests, responsive checks, `wd check`, the review, durable records, a clean pushed tree and an open PR. Repeated identical blocks become a message to the user after three attempts. |
+| `PreToolUse` | blocks out-of-manifest writes, vulnerable patterns, added comments, undeclared dependencies, destructive migrations, default-branch commits, interpreters fed a program on stdin, and writes outside the project root |
+| `PostToolUse` | records writes, approvals and the question ledger |
+| `PostToolBatch` | one map render per batch, and the notes still owed |
+| `FileChanged` | sees every filesystem change, including those no tool made |
+| `PermissionRequest` | silently allows the harness's own commands and nothing else |
+| `PostToolUseFailure` | turns a common tool error into the one next step that fixes it |
+| `SubagentStart` | hands every subagent the map order and the current health |
+| `SubagentStop` | records the reviewer's verdict, bound to the diff it reviewed |
+| `Stop` | the closing audit: verification, tests, responsive, review, records, PR — each bound to a hash that expires when the code changes |
+| `PreCompact` | pins the brief, manifest and locate result into the compaction summary |
+| `ConfigChange` | refuses a mid-task edit to the files that decide what is enforced |
+| `SessionEnd` | saves the task state |
 
-Plan mode is denied as a tool, and worktree-isolated agents are refused. `.claude/agents/Explore.md` makes delegated searches map-first.
+A gate that fails is a gate that blocks: if the hook itself errors, the tool call is denied
+rather than let through unchecked.
 
-### Security rules
+### Security
 
-`WD-SEC-EVAL` · `WD-SEC-XSS-HTML` · `WD-SEC-SQL-INTERP` · `WD-SEC-CMD-INTERP` · `WD-SEC-TLS-OFF` · `WD-SEC-JWT` · `WD-SEC-CORS` · `WD-SEC-REDIRECT` · `WD-SEC-SSRF` · `WD-SEC-PATH` · `WD-SEC-PROTO` · `WD-SEC-RANDOM` · `WD-SEC-COOKIE` · `WD-SEC-PUBLIC-ENV` · `WD-SEC-SECRET` · `WD-SEC-HASH` · `WD-SEC-POSTMESSAGE` · `WD-SEC-MIGRATION` · `WD-DEP` · `WD-COMMENT`, plus map-level `WD-API-UNAUTH`, `WD-API-UNVALIDATED`, `WD-API-UNMATCHED` and `WD-DATA-MULTIWRITER`. Details are in `procedures/security.md`.
+Enforced rules are taint-based — they fire on data a user controls reaching a dangerous sink,
+not on shape. Injection, XSS sinks, path traversal, SSRF, prototype pollution, open redirect,
+weak crypto, JWT `none`, TLS off, CORS with credentials, insecure cookies, client-exposed
+secrets and hardcoded credentials all block at write time.
 
-A finding can be accepted only through a `Security exceptions:` line in a brief the user approves. There are no inline suppressions.
+What no pattern can decide — authorization, business logic, CSRF, rate limiting, CSP, fail-open
+error handling — lives in the brief's reasoned checklist and the reviewer's pass. A clean scan
+is a floor, never a ceiling, and the harness says so rather than implying otherwise.
 
 ## Maps
 
-Rendered into `.claude/web-dev/maps/`, which is gitignored:
+Rendered into `.claude/web-dev/maps/`, gitignored, rebuilt on demand. They merge mechanical
+facts from the code with the notes you and the model write, which are committed.
 
 | Map | Answers |
 |---|---|
 | `index.md` | feature → shards, entry files, routes, pages, tables, status |
-| `codemap-<shard>.md` | every file and named function/component/hook: signature, line range, imports, used-by, db access, calls, note |
-| `apimap.md` | route ↔ handler ↔ auth ↔ input ↔ tables ↔ callers; unmatched, unresolved, dead, unauthenticated, unvalidated |
-| `uimap.md` | page → layouts → component tree, client boundary, data, metadata, last responsive check |
-| `datamap.md` | tables and in-memory stores with writers and readers; env surface and findings |
+| `codemap-<shard>.md` | every named symbol, its signature, line range, imports, used-by, db access, calls and note |
+| `apimap.md` | route ↔ handler ↔ auth ↔ input schema ↔ output ↔ tables ↔ frontend callers |
+| `uimap.md` | route → layout → component tree, client/server boundary, data fetching |
+| `datamap.md` | tables, relations, readers and writers, single-writer check, env surface |
 
-Notes are the only AI-written part. They live in `.claude/web-dev/notes/<shard>.md`, are committed, are written with `wd note set`, and are sorted by key so parallel branches rarely conflict.
+On a real codebase the maps cost about a tenth of the source they describe. Read them with
+`wd map <path>` or `wd find <symbol>` rather than opening a shard.
 
 ## `wd` — the harness CLI
 
-Run `node .claude/hooks/web-dev/wd.mjs <command>` from the project root.
+Run from the project root as `node .claude/web-dev/wd.mjs <command>`.
 
-| Command | Purpose |
+| Command | Does |
 |---|---|
-| `maps [--force]` | render maps |
-| `note set` / `note missing` | write notes from JSON lines / list owed notes |
-| `task hash` / `task status` | brief hash for approval / state |
-| `check [--draft-blueprint]` | blueprint, maps and docs consistency |
-| `verify` | typecheck, lint, test, build; recorded for the Stop hook |
-| `responsive [--path /x]` | Playwright viewport and accessibility check with screenshots |
-| `scan <files>` / `scan --all --report` | security scan |
-| `review-prep` | diff and context for the reviewer |
-| `pr-body` | PR description from the brief and results |
-| `facts check` / `id D\|R` / `setup` | stale facts, next id, parser install |
+| `map <path>` / `find <symbol>` | one file's or one symbol's map lines |
+| `class` | the task class from the locate result |
+| `defer "<item>"` | queue something out of scope for after `/clear` |
+| `maps` | re-render every map |
+| `note set` / `note missing` | write notes from stdin JSON / list the ones still owed |
+| `task hash` / `task status` | the brief hash / the state machine position |
+| `check` | blueprint ↔ disk ↔ maps, docs ↔ package versions |
+| `verify` | typecheck, lint, test, build |
+| `responsive` | every configured viewport, with screenshots |
+| `scan` | security, secret and comment scan |
+| `review-prep` / `pr-body` | the reviewer's diff / the PR body |
+| `config set <key> <value>` | change one key `config.json` already defines; the gate reads that file, so it is never hand-edited |
+| `id D` / `id R` | the next free decision or requirement id |
+| `facts check` | facts whose pinned version no longer matches the lockfile |
+| `setup` | install the pinned parser for this machine |
 
 ## Project files
 
-| Committed | Gitignored |
+| Committed | Generated |
 |---|---|
-| `CLAUDE.md` (imports `.claude/web-dev/CLAUDE.md`), `.claude/settings.json`, `.claude/hooks/web-dev/`, `.claude/agents/`, `.claude/rules/web-dev-*.md`, `.claude/web-dev/{product,stack,decisions,blueprint}.md`, `notes/`, `facts/`, `config.json`, `shards.json`, `enforce.json` | `.claude/web-dev/{maps,state,work,shots}/` |
+| `CLAUDE.md`, `.claude/settings.json`, `.claude/agents/`, `.claude/rules/web-dev-*.md`, `.claude/web-dev/{product,stack,decisions,blueprint}.md`, `notes/`, `facts/`, `config.json`, `enforce.json`, `shards.json` | `.claude/web-dev/{maps,state,work,shots}/`, `wd.mjs`, `statusline.mjs` |
 
-`product.md` holds the lasting requirements (`R-###`). `stack.md` and `decisions.md` hold decisions (`D-###`), and `wd check` compares them with `package.json` and the lockfile. `facts/<pkg>@<version>.md` holds distilled, version-pinned framework facts that go stale when the lockfile moves. The task brief and postflight are deleted when the task closes, and their content lives on in the PR.
+`enforce.json` is what arms the gate in every clone. `config.json` decides what the gate
+enforces, so neither can be changed through a brief — only by you.
 
 ## Configuration
 
-`.claude/web-dev/config.json` holds:
-- `defaultBranch`, `git.remote` (`none` for local-only), `git.pullRequest`
-- `commands.{typecheck,lint,test,build,dev}`, `devUrl`
-- `responsive.{viewports,paths,minTapTargetPx,minFontPx}`
-- `generated` globs, `authMarkers`, `validationMarkers`
-- `approval.{labels,tokens}`, `comments.allowedPragmas`
-- `security.{gitleaks,opengrep,osvScanner}` (`auto`/`off`)
-
-Change it through a brief: the gate reads it.
+`.claude/web-dev/config.json` holds the default branch, the package manager, the verification
+commands, the responsive viewports, the auth and validation markers the map recognises, the
+approval labels and tokens, the allowed comment pragmas, and which optional security tools to
+use. `.claude/web-dev/shards.json` maps path patterns to codemap shards and caps a shard's
+size.
 
 ## Developing the plugin
 
 ```bash
-WEB_DEV_CACHE=/tmp/wd-cache node -e "import('./scripts/lib/ts.mjs').then(m => m.installParser())"
-WEB_DEV_CACHE=/tmp/wd-cache node --test tests/
+npm run setup   # install the pinned parser into the user cache
+npm test        # node:test — gate, security, maps, notes, state, wiring
 ```
 
-The parser is pinned (`typescript@6.0.3`, the last release with the JavaScript compiler API) and lives in a per-user cache. Map hashes therefore do not change when a project upgrades TypeScript. The fixtures in `tests/fixtures/` cover Next.js with Prisma, a Vite React + Express + Drizzle monorepo, Nuxt, and SvelteKit with tRPC.
+`npm test` includes an adversarial suite: every bypass the audit found has a test that tries
+it, and a wiring test asserts that every hook path, placeholder and routed file actually
+resolves on disk.
 
 ## Known limits
 
-- The shell-write check is a heuristic, not a full shell parser. Anything it misses is caught by the Stop hook's end-of-turn re-scan, but within a single turn there is a window.
-- Logic-level vulnerabilities, such as a wrong authorization rule or a business-invariant bug, cannot be detected by patterns. The brief's risk section, the security checklist and the reviewer reduce them; they do not prove their absence.
-- Unrecognized routing or client patterns land in `## Unresolved`. They are visible but not linked.
-- If hooks are disabled (`disableAllHooks`) or the workspace is untrusted, no gate runs. The missing `[web-dev]` report is the signal, and the skill writes no code without it.
+- The harness cannot run `/clear` for you — no hook can. It makes clearing free, tells you when
+  it is time, and picks the next task up on the other side.
+- `wd responsive` needs `@playwright/test` in the project.
+- The deep scan is silent unless `gitleaks`, `opengrep` or `osv-scanner` are installed.
+- Static analysis cannot see authorization or business-logic flaws. That is what the reasoned
+  checklist and the reviewer are for.
 
 ## License
 

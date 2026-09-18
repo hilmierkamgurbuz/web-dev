@@ -7,18 +7,39 @@ import { loadConfig } from '../lib/config.mjs';
 import { currentBranch, showFile, upstreamStatus } from '../lib/git.mjs';
 import { sha256 } from '../lib/hash.mjs';
 import { WD } from '../lib/hookio.mjs';
-import { exists, mtimeMs, readJson, readText, removeFile, truncate } from '../lib/io.mjs';
+import { exists, mtimeMs, readJson, readText, removeFile, truncate, writeText } from '../lib/io.mjs';
 import { layout } from '../lib/paths.mjs';
 import { isAnalyzable, projectTags } from '../lib/project.mjs';
 import { branchFiles, buildDiff, LOCKFILE, TOOL_OUTPUT, treeHash, UI_FILE, uiHash, workingChanges } from '../lib/review.mjs';
 import { matchAny } from '../lib/shards.mjs';
-import { approval, enforced, readStop, readTask, readTurn, writeStop, writeTask } from '../lib/state.mjs';
+import { approval, clearApproval, clearStuck, enforced, markStuck, readStop, readTask, readTurn, writeStop, writeTask } from '../lib/state.mjs';
 import { isCodeFile, loadTs } from '../lib/ts.mjs';
 import { deepScan, hasBinary } from '../security/external.mjs';
 import { formatFindings, isClientPath, isTestPath, scanContent } from '../security/scan.mjs';
 
 const HARNESS = /^(\.claude\/|CLAUDE\.md$|CLAUDE\.local\.md$)/;
 const CONFIG_FILE = /(^|\/)[^/]*\.config\.(m|c)?[jt]s$|(^|\/)(middleware|instrumentation)\.(t|j)s$/;
+
+const DONE_CLAIM = /\b(done|complete[d]?|finished|implemented|ready to (merge|ship|review)|all set|works now|working now|fixed|shipped)\b|\b(tamam(landı)?|bitti|hazır|tamamlandı|çalışıyor|düzeldi)\b/i;
+const STILL_WORKING = /\b(next|now I(’|')?ll|I will|proceeding|continuing|let me|shall I|should I|which|would you (like|prefer)|blocked|waiting|need(s|ed)? (your|a) (answer|decision|approval|input))\b|\b(sıradaki|devam|hangisini|ister misin|onay|bekliyor|karar)\b/i;
+
+function claimsDone(text) {
+  const message = String(text || '');
+  if (!message.trim()) return false;
+  if (message.includes('?')) return false;
+  if (STILL_WORKING.test(message)) return false;
+  return DONE_CLAIM.test(message);
+}
+
+function closingArmed(root, { L, task, brief, lastMessage, config }) {
+  if (exists(L.postflight)) return 'postflight written';
+  if (task.state === 'closing') return 'task state is closing';
+  if (task.closeRequested) return `a closing step was attempted (${task.closeRequested})`;
+  if (branchFiles(root, config).some((f) => !HARNESS.test(f))) {
+    if (claimsDone(lastMessage)) return 'the turn ends claiming the work is done, and the task branch already carries commits';
+  }
+  return null;
+}
 
 function turnFiles(root, turn) {
   const changed = workingChanges(root).map((e) => e.path);
@@ -146,8 +167,9 @@ export default async function ({ input, root }) {
 
   let closed = false;
   let pr = task.pr || null;
-  if (exists(L.postflight)) {
-    if (!status.ok) blockers.push(`postflight exists but the brief is not approved: ${status.reason}`);
+  const armedBy = brief ? closingArmed(root, { L, task, brief, lastMessage: input.last_assistant_message, config }) : null;
+  if (armedBy) {
+    if (!status.ok) blockers.push(`the task is closing (${armedBy}) but the brief is not approved: ${status.reason}`);
     else if (!blockers.length) {
       const result = closingChecks(root, { config, brief, health });
       blockers.push(...result.blockers);
@@ -164,14 +186,21 @@ export default async function ({ input, root }) {
     removeFile(L.task);
     removeFile(L.postflight);
     removeFile(L.prBody);
-    writeTask(root, { state: 'closed', closedAt: new Date().toISOString(), closedSession: input.session_id || null, pr, approvedHash: null, reminded: false, title: brief.title });
+    clearApproval(root);
+    writeTask(root, { state: 'closed', closedAt: new Date().toISOString(), closedSession: input.session_id || null, pr, approvedHash: null, reminded: false, closeRequested: null, stuck: null, title: brief.title });
     writeStop(root, { reason: '', count: 0 });
+    const deferred = (readText(L.deferred) || '').split('\n').map((l) => l.replace(/^\s*[-*]\s*/, '').trim()).filter(Boolean);
+    if (deferred.length) {
+      writeText(L.next, `The previous task "${brief.title}" closed${pr ? ` (${pr})` : ''}. ${deferred.length} item(s) were deferred out of its scope:\n${deferred.map((d) => `- ${d}`).join('\n')}\n\nStart the next task on the first one: run locate, then intake. Ask me before assuming any of them is still wanted.`);
+      removeFile(L.deferred);
+    }
     return {
       hookSpecificOutput: {
         hookEventName: 'Stop',
-        additionalContext: `web-dev: every closing check passed and "${brief.title}" is closed${pr ? ` (${pr})` : ''}. Give the user the final summary now: the PR link, one line per acceptance criterion, and the recommendation to run /clear before the next task. Start no new work.`,
+        additionalContext: `web-dev: every closing check passed and "${brief.title}" is closed${pr ? ` (${pr})` : ''}. Give the user the final summary now: the PR link, one line per acceptance criterion, and the recommendation to run /clear before the next task${deferred.length ? ` (${deferred.length} deferred item(s) are queued and the next session will offer them)` : ''}. Start no new work.`,
       },
       systemMessage: `web-dev: task closed${pr ? ` · ${pr}` : ''} · run /clear before the next task${systemMessage ? `\n${systemMessage}` : ''}`,
+      terminalSequence: `]9;web-dev: ${brief.title} closed`,
     };
   }
 
@@ -181,12 +210,20 @@ export default async function ({ input, root }) {
     const prior = readStop(root);
     const count = prior.reason === key ? prior.count + 1 : 1;
     writeStop(root, { reason: key, count });
-    if (count >= 3) {
-      return { systemMessage: `web-dev: the same problem blocked the end of the turn ${count} times and needs your decision:\n${truncate(reason, 1800)}${systemMessage ? `\n${systemMessage}` : ''}` };
+    if (count >= 3) markStuck(root, truncate(reason, 600));
+    if (input.stop_hook_active && count >= 6) {
+      return {
+        systemMessage: `web-dev: the same closing check has blocked ${count} turns and the platform is about to override this hook. It needs a decision from you:\n${truncate(reason, 1500)}`,
+        terminalSequence: ']9;web-dev: a task is stuck and needs you',
+      };
     }
-    return { decision: 'block', reason: `web-dev turn audit — resolve before ending the turn:\n${truncate(reason, 7000)}`, ...(systemMessage ? { systemMessage } : {}) };
+    const escalation = count >= 3
+      ? `\n\nThis is attempt ${count} on the identical blocker, so stop retrying it the same way. Tell the user in one paragraph what is blocking, what you already tried, and ask them with AskUserQuestion how to proceed — the options are usually: fix it differently, record the finding as an accepted exception in the brief, or split it into its own task. Do not end the turn without asking.`
+      : '';
+    return { decision: 'block', reason: `web-dev turn audit — resolve before ending the turn:\n${truncate(reason, 7000)}${escalation}`, ...(systemMessage ? { systemMessage } : {}) };
   }
   writeStop(root, { reason: '', count: 0 });
+  if (task.stuck) clearStuck(root);
   return systemMessage ? { systemMessage } : null;
 }
 

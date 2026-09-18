@@ -83,10 +83,16 @@ export function gitleaksStaged(root, config) {
   }
 }
 
+const DEEP_SCAN_EXTENSIONS = /\.(m|c)?(j|t)sx?$|\.(vue|svelte)$/;
+
+export function deepScanTargets(root, rels) {
+  return rels.filter((rel) => DEEP_SCAN_EXTENSIONS.test(rel) && fs.existsSync(path.join(root, rel)));
+}
+
 export function deepScan(root, rels, config) {
   const tool = enabled(config, 'opengrep') ? (hasBinary('opengrep') ? 'opengrep' : hasBinary('semgrep') ? 'semgrep' : null) : null;
   if (!tool) return { available: false, findings: [] };
-  const targets = rels.filter((rel) => /\.(m|c)?(j|t)sx?$/.test(rel) && fs.existsSync(path.join(root, rel)));
+  const targets = deepScanTargets(root, rels);
   if (!targets.length) return { available: true, tool, findings: [] };
   const rules = path.join(path.dirname(fileURLToPath(import.meta.url)), 'opengrep');
   const args = ['scan', '--config', rules, '--json', '--quiet'];
@@ -113,9 +119,9 @@ export function deepScan(root, rels, config) {
 export function dependencyAudit(root, lockfiles, config) {
   if (!enabled(config, 'osvScanner') || !hasBinary('osv-scanner') || !lockfiles.length) return { available: false, findings: [] };
   const lockArgs = lockfiles.flatMap((l) => ['-L', l]);
-  let result = spawnSync('osv-scanner', ['scan', 'source', '--format', 'json', ...lockArgs], { cwd: root, encoding: 'utf8', timeout: 120000, maxBuffer: 64 * 1024 * 1024 });
+  let result = spawnSync('osv-scanner', ['scan', 'source', '--format', 'json', ...lockArgs], { cwd: root, encoding: 'utf8', timeout: 60000, maxBuffer: 64 * 1024 * 1024 });
   if (!result.stdout?.trim().startsWith('{')) {
-    result = spawnSync('osv-scanner', ['--format', 'json', ...lockfiles.flatMap((l) => [`--lockfile=${l}`])], { cwd: root, encoding: 'utf8', timeout: 120000, maxBuffer: 64 * 1024 * 1024 });
+    result = spawnSync('osv-scanner', ['--format', 'json', ...lockfiles.flatMap((l) => [`--lockfile=${l}`])], { cwd: root, encoding: 'utf8', timeout: 60000, maxBuffer: 64 * 1024 * 1024 });
   }
   let data = null;
   try {

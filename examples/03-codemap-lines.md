@@ -3,7 +3,7 @@
 ## What the AI writes (through `wd note set`)
 
 ```
-node .claude/hooks/web-dev/wd.mjs note set <<'EOF'
+node .claude/web-dev/wd.mjs note set <<'EOF'
 {"key":"src/features/orders/order.service.ts","role":"order lifecycle and status transitions","sys":"orders","crit":"K1"}
 {"key":"src/features/orders/order.service.ts#cancel","note":"buyer-only cancel before shipping; refunds via payments once; throws Forbidden, Conflict"}
 {"key":"src/features/orders/order.service.ts#getOrder","note":"loads order with items for its buyer or seller; null when not visible"}

@@ -1,6 +1,8 @@
-# web-dev — generated and per-machine state (the notes, blueprint, product, stack, decisions, facts, config and enforce.json are committed)
+# web-dev — generated and per-machine state. The notes, blueprint, product, stack, decisions, facts, config.json and enforce.json are committed; everything below is rebuilt.
 .claude/web-dev/maps/
 .claude/web-dev/state/
 .claude/web-dev/work/
 .claude/web-dev/shots/
+.claude/web-dev/wd.mjs
+.claude/web-dev/statusline.mjs
 .claude/settings.local.json

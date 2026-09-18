@@ -1,9 +1,7 @@
 {
-  "_comment": "web-dev — project hook registration. Settings hooks run in every session and inside every subagent; skill-frontmatter hooks would only run while the skill is active, so enforcement lives here. Verify with /hooks after install; project hooks need the workspace trust dialog accepted once.",
-  "_form": "Every hook uses exec form (command + args) so a project path containing spaces is never re-tokenized by a shell. One dispatcher script routes by event and tool name, so each tool call spawns one process.",
-  "_no_if_on_the_gate": "The PreToolUse group carries no `if` filter. A filter that silently stops matching after a version change would turn the gate into a no-op.",
-  "_deny": "EnterPlanMode is removed because web-dev plans through the approved brief. Worktree-isolated agents are refused because a fresh worktree moves CLAUDE_PROJECT_DIR away from the manifest paths the gate checks.",
-  "_plugin": "extraKnownMarketplaces and enabledPlugins offer the web-dev plugin (the skill, procedures and gates) to everyone who clones this repository and trusts the folder, so the hooks below never run without the instructions they enforce.",
+  "_comment": "web-dev project settings. In v2 the harness ships its own hooks inside the plugin, so this file registers NO hooks: the gate is already running before a project has any settings at all, and a copy of the hook scripts inside each project is a copy that goes stale. What stays here is the part a repository genuinely owns — offering the plugin to whoever clones it, and the permission denies that shape how this project is worked on.",
+  "_plugin": "extraKnownMarketplaces and enabledPlugins offer the web-dev plugin to everyone who clones this repository and trusts the folder, so the instructions arrive with the enforcement rather than after it.",
+  "_deny": "EnterPlanMode is denied because this project plans through the approved brief. Worktree isolation is denied because a fresh worktree moves the project root away from the manifest paths the gate checks, and a worktree created behind the gate's back is a tree it never inspects.",
   "extraKnownMarketplaces": {
     "web-dev": {
       "source": { "source": "github", "repo": "hilmierkamgurbuz/web-dev" }
@@ -13,96 +11,10 @@
     "web-dev@web-dev": true
   },
   "permissions": {
-    "deny": ["EnterPlanMode", "Agent(isolation:worktree)"]
-  },
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/web-dev/hook.mjs", "session-start"],
-            "statusMessage": "web-dev: map health"
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/web-dev/hook.mjs", "prompt-submit"],
-            "statusMessage": "web-dev: task state"
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "Edit|Write|NotebookEdit|Bash|PowerShell|AskUserQuestion",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/web-dev/hook.mjs", "pre-tool"],
-            "statusMessage": "web-dev: gate"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write|NotebookEdit|Bash|PowerShell|AskUserQuestion",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/web-dev/hook.mjs", "post-tool"],
-            "statusMessage": "web-dev: maps"
-          }
-        ]
-      }
-    ],
-    "SubagentStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/web-dev/hook.mjs", "subagent-start"],
-            "statusMessage": "web-dev: map contract"
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "matcher": "web-dev-reviewer",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/web-dev/hook.mjs", "subagent-stop"],
-            "statusMessage": "web-dev: recording review verdict"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/web-dev/hook.mjs", "stop"],
-            "timeout": 1200,
-            "statusMessage": "web-dev: turn audit"
-          }
-        ]
-      }
+    "deny": [
+      "EnterPlanMode",
+      "EnterWorktree",
+      "Agent(isolation:worktree)"
     ]
   }
 }

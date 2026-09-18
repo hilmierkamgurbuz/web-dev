@@ -9,14 +9,14 @@ You write the semantic notes that make the web-dev maps useful to future AI sess
 
 ## Steps
 
-1. Run `node .claude/hooks/web-dev/wd.mjs note missing --shard <shard>`. It lists the keys that need a note: file headers and symbols.
+1. Run `node .claude/web-dev/wd.mjs note missing --shard <shard>`. It lists the keys that need a note: file headers and symbols.
 2. Read `.claude/web-dev/blueprint.md` `## Features` to learn the valid `sys` names.
 3. Read `.claude/web-dev/maps/codemap-<shard>.md`.
 4. For each file with owed keys, read only the `L` ranges of the owed symbols, plus the imports when needed to understand a call.
 5. Write notes in batches of up to 40 lines:
 
 ```
-node .claude/hooks/web-dev/wd.mjs note set <<'EOF'
+node .claude/web-dev/wd.mjs note set <<'EOF'
 {"key":"<path>","role":"<3-8 words>","sys":"<feature from blueprint>","crit":"K1|K2|K3"}
 {"key":"<path>#<symbol>","note":"<≤20 words>"}
 EOF

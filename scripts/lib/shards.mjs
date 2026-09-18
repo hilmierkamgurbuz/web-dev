@@ -75,3 +75,35 @@ export function shardOf(rel, shards) {
   for (const shard of shards) if (matchAny(rel, shard.patterns)) return shard.name;
   return shards[shards.length - 1].name;
 }
+
+export const DEFAULT_MAX_TOKENS = 4000;
+const CHARS_PER_TOKEN = 4;
+
+export function estimateTokens(text) {
+  return Math.ceil(text.length / CHARS_PER_TOKEN);
+}
+
+export function shardBudget(root) {
+  const data = readJson(layout(root).shards, null);
+  const n = Number(data?.maxTokens);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_MAX_TOKENS;
+}
+
+export function splitByBudget(entries, maxTokens) {
+  const parts = [[]];
+  let used = 0;
+  for (const entry of entries) {
+    const part = parts[parts.length - 1];
+    if (part.length && used + entry.tokens > maxTokens) {
+      parts.push([]);
+      used = 0;
+    }
+    parts[parts.length - 1].push(entry);
+    used += entry.tokens;
+  }
+  return parts;
+}
+
+export function partName(base, index) {
+  return index === 0 ? base : `${base}-${index + 1}`;
+}

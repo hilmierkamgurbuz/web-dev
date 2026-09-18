@@ -1,0 +1,211 @@
+{
+  "description": "web-dev — always-on triggering and enforcement for JavaScript/TypeScript web projects. These hooks ship with the plugin, so they run in every directory the moment the plugin is enabled: no per-project settings edit, and no install step before the first gate works. Ring 0 (SessionStart, UserPromptSubmit, CwdChanged) decides whether this directory is web-dev territory at all. Ring 1 (everything else) returns immediately unless .claude/web-dev/ exists, so an unrelated repository pays one short-lived process and nothing else.",
+  "_output": "Every decision field is nested under hookSpecificOutput with a matching hookEventName. A field placed at the top level parses and is then silently dropped, which is the one hook bug that produces no error signal anywhere.",
+  "_blocking": "Blocking is exit 2, or the event's own JSON decision field. A bare non-zero exit is a non-blocking error and the action proceeds, so the dispatcher never signals refusal that way.",
+  "_form": "Every entry uses exec form (command + args): the command resolves as a real executable and the arguments are passed as an argv vector, so a project path containing spaces, quotes or $ never reaches a shell parser.",
+  "_merge": "Hook entries from the plugin, project settings and user settings are additive — they all fire. Every handler here is therefore idempotent and safe to run twice in the same turn.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/hook.mjs", "session-start"],
+            "timeout": 45,
+            "statusMessage": "web-dev: reading project state"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/hook.mjs", "prompt-submit"],
+            "timeout": 25,
+            "statusMessage": "web-dev: task state"
+          }
+        ]
+      }
+    ],
+    "CwdChanged": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/hook.mjs", "cwd-changed"],
+            "timeout": 20,
+            "statusMessage": "web-dev: re-reading project state"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "_matcher": "A regex, not a name set: a value made only of letters, digits, _, -, spaces, commas and pipes is read as an exact-match set, so a plain 'Edit|Write|…|mcp__' list would match a tool literally named mcp__ and let every real MCP tool through the gate ungated. The anchors and the .* force the regex path and cover every mcp__server__tool name.",
+        "matcher": "^(Edit|MultiEdit|Write|NotebookEdit|Bash|PowerShell|Agent|Task|Skill|AskUserQuestion|WebFetch|mcp__.*)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/hook.mjs", "pre-tool"],
+            "timeout": 45,
+            "statusMessage": "web-dev: gate"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "_why": "PostToolBatch hands every call's tool_response as a short string, so the structured AskUserQuestion answers and the PR url a gh command prints are only readable here. This handler does bookkeeping only — it records the write, the approval, the question ledger and what went dirty. Every expensive thing (map render, owed notes, dependency audit) waits for the single PostToolBatch below.",
+        "matcher": "^(Edit|MultiEdit|Write|NotebookEdit|Bash|PowerShell|AskUserQuestion|mcp__.*)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/hook.mjs", "post-tool"],
+            "timeout": 30,
+            "statusMessage": "web-dev: recording"
+          }
+        ]
+      }
+    ],
+    "PostToolBatch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/hook.mjs", "post-batch"],
+            "timeout": 90,
+            "statusMessage": "web-dev: maps"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash|PowerShell|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/hook.mjs", "tool-failed"],
+            "timeout": 20,
+            "statusMessage": "web-dev: failure note"
+          }
+        ]
+      }
+    ],
+    "FileChanged": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/hook.mjs", "file-changed"],
+            "timeout": 20,
+            "statusMessage": "web-dev: watched write"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/hook.mjs", "permission-request"],
+            "timeout": 20,
+            "statusMessage": "web-dev: harness command"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/hook.mjs", "subagent-start"],
+            "timeout": 20,
+            "statusMessage": "web-dev: map contract"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/hook.mjs", "subagent-stop"],
+            "timeout": 30,
+            "statusMessage": "web-dev: recording subagent result"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/hook.mjs", "stop"],
+            "timeout": 1200,
+            "statusMessage": "web-dev: turn audit"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/hook.mjs", "pre-compact"],
+            "timeout": 30,
+            "statusMessage": "web-dev: pinning task state"
+          }
+        ]
+      }
+    ],
+    "ConfigChange": [
+      {
+        "matcher": "project_settings|local_settings",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/hook.mjs", "config-change"],
+            "timeout": 20,
+            "statusMessage": "web-dev: settings guard"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/hook.mjs", "session-end"],
+            "timeout": 10,
+            "statusMessage": "web-dev: saving task state"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -10,4 +10,4 @@ export function context(event, text) {
   return { hookSpecificOutput: { hookEventName: event, additionalContext: text } };
 }
 
-export const WD = 'node .claude/hooks/web-dev/wd.mjs';
+export const WD = 'node .claude/web-dev/wd.mjs';

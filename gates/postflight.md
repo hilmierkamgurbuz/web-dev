@@ -1,6 +1,8 @@
 # postflight — end-of-task audit
 
-Write `.claude/web-dev/work/postflight.md` in this format when the build is complete. Writing it moves the task to `closing`. The Stop hook then re-verifies every machine-checkable item from its own recorded results and closes the task only when all of them hold. The Y/N marks are your report; the hook trusts its records, not your marks.
+Write `.claude/web-dev/work/postflight.md` when the build is complete. It moves the task to `closing`; the Stop hook then re-verifies every machine-checkable item from its own records and closes the task only when all of them hold. The Y/N marks are your report — the hook trusts its records, not your marks.
+
+Writing it is not what starts the audit. The same checks arm when the task branch carries commits and the turn ends claiming the work is done, so skipping postflight does not skip the audit: it only means the audit tells you what is missing instead of you listing it. A `touch` writes none; its close is `wd verify` plus the notes it owes.
 
 Each item is Y or N. There is no "partially": partially is N, and every N needs a reason.
 
@@ -43,11 +45,10 @@ Each item is checked in order, and the first failure is returned as the reason t
 
 Failures caused by infrastructure — no network, `gh` not authenticated, the dev server not starting — do not block. They are reported to the user with the manual step to take.
 
-When every check passes, the hook deletes `work/task.md` and `work/postflight.md`, marks the task closed, and shows the user a message with the PR link and a `/clear` recommendation. Repeat that recommendation in your final message.
+When every check passes the hook clears the task files, marks it closed, and shows the PR link with a `/clear` recommendation — anything queued with `wd defer` is offered in the next session. Repeat that recommendation in your final message.
 
 ## Rules
 
-- Postflight is never skipped. "Small change" is not an exemption.
 - Quoted lines are copied from command output, never paraphrased.
-- A postflight with an N does not close the task. Fix the item, or escalate it to the user with the reason.
+- An N does not close the task. Fix it, or escalate it to the user with the reason.
 - Full example: `examples/02-postflight.md`.

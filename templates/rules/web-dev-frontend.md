@@ -4,6 +4,7 @@ paths:
   - "**/*.jsx"
   - "**/*.vue"
   - "**/*.svelte"
+  - "**/*.astro"
   - "**/components/**"
   - "**/app/**"
   - "**/pages/**"

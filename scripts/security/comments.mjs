@@ -4,6 +4,11 @@ import { createSource, SFC_EXTENSIONS } from '../lib/ts.mjs';
 
 const EMPTY_CONTAINERS = new Set(['Block', 'ObjectLiteralExpression', 'ArrayLiteralExpression', 'ModuleBlock', 'CaseBlock', 'ClassDeclaration', 'InterfaceDeclaration', 'TypeLiteral', 'EnumDeclaration', 'NamedImports', 'NamedExports']);
 const SECURITY_LINT_RULES = /(no-eval|no-implied-eval|no-new-func|react\/no-danger|security\/|no-script-url|jsx-no-target-blank|no-sync-scripts|no-unsanitized|detect-)/;
+const TODO_COMMENT = /^(TODO|FIXME)\b/i;
+
+function commentBody(text) {
+  return text.replace(/^\/\/+|^\/\*+|\*+\/$|^<!--|-->$/g, '').trim();
+}
 
 function lineAt(text, pos) {
   let line = 1;
@@ -92,7 +97,7 @@ function sfcStyleComments(text) {
 }
 
 export function isAllowedComment(comment, { rel, config, isFirst }) {
-  const body = comment.text.replace(/^\/\/+|^\/\*+|\*+\/$|^<!--|-->$/g, '').trim();
+  const body = commentBody(comment.text);
   const pragmas = config.comments?.allowedPragmas || [];
   if (/^eslint-disable-next-line\b/.test(body)) return !SECURITY_LINT_RULES.test(body) && body.split(/\s+/).length > 1;
   if (/^@ts-expect-error\b/.test(body)) return body.replace('@ts-expect-error', '').trim().length > 0;
@@ -120,7 +125,7 @@ export function addedCommentFindings(ts, rel, newText, oldText, config) {
     current = commentsOf(ts, rel, newText);
     previous = oldText == null ? [] : commentsOf(ts, rel, oldText);
   } catch {
-    return [];
+    return { findings: [], warnings: [] };
   }
   const pool = new Map();
   for (const c of previous) {
@@ -129,6 +134,7 @@ export function addedCommentFindings(ts, rel, newText, oldText, config) {
   }
   const sorted = [...current].sort((a, b) => a.line - b.line);
   const findings = [];
+  const warnings = [];
   sorted.forEach((comment, index) => {
     const key = comment.text.replace(/\s+/g, ' ').trim();
     const count = pool.get(key) || 0;
@@ -138,7 +144,11 @@ export function addedCommentFindings(ts, rel, newText, oldText, config) {
     }
     if (isAllowedComment(comment, { rel, config, isFirst: index === 0 })) return;
     const preview = key.length > 60 ? `${key.slice(0, 57)}…` : key;
+    if (TODO_COMMENT.test(commentBody(comment.text))) {
+      warnings.push(`L${comment.line}: TODO/FIXME comment added (${preview}) — not blocking; track it with wd note set instead`);
+      return;
+    }
     findings.push({ rule: 'WD-COMMENT', line: comment.line, message: `comment added: ${preview}`, fix: 'remove it; put the explanation in the symbol note with wd note set' });
   });
-  return findings;
+  return { findings, warnings };
 }

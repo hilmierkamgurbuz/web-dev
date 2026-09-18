@@ -7,8 +7,8 @@ import { ensureDir, exists, writeJson } from './io.mjs';
 export const PARSER_PACKAGE = 'typescript';
 export const PARSER_VERSION = '6.0.3';
 
-export const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.mts', '.cts', '.vue', '.svelte']);
-export const SFC_EXTENSIONS = new Set(['.vue', '.svelte']);
+export const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.mts', '.cts', '.vue', '.svelte', '.astro']);
+export const SFC_EXTENSIONS = new Set(['.vue', '.svelte', '.astro']);
 
 export function cacheRoot() {
   if (process.env.WEB_DEV_CACHE) return process.env.WEB_DEV_CACHE;

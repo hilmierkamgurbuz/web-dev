@@ -86,10 +86,10 @@ rules:
     severity: ERROR
     message: dangerouslySetInnerHTML receives a value that is not sanitized.
     patterns:
-      - pattern: <$EL dangerouslySetInnerHTML={{__html: $X}} />
-      - pattern-not: <$EL dangerouslySetInnerHTML={{__html: DOMPurify.sanitize(...)}} />
-      - pattern-not: <$EL dangerouslySetInnerHTML={{__html: sanitize(...)}} />
-      - pattern-not: <$EL dangerouslySetInnerHTML={{__html: "..."}} />
+      - pattern: '<$EL dangerouslySetInnerHTML={{__html: $X}} />'
+      - pattern-not: '<$EL dangerouslySetInnerHTML={{__html: DOMPurify.sanitize(...)}} />'
+      - pattern-not: '<$EL dangerouslySetInnerHTML={{__html: sanitize(...)}} />'
+      - pattern-not: '<$EL dangerouslySetInnerHTML={{__html: "..."}} />'
 
   - id: web-dev-cors-any-origin-with-credentials
     languages: [javascript, typescript]

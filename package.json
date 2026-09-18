@@ -10,5 +10,9 @@
   "scripts": {
     "setup": "node -e \"import('./scripts/lib/ts.mjs').then((m) => m.installParser())\"",
     "test": "node --test tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63.0"
   }
 }

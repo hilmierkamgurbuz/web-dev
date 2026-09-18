@@ -117,6 +117,9 @@ function closingChecks(root, { config, brief, health }) {
   }
 
   const deep = deepScan(root, files.filter((f) => !HARNESS.test(f)), config);
+  if (deep.available && deep.error) {
+    blockers.push(`the deep scan could not run, so it is not evidence of anything: ${deep.error}. Fix the tool or turn it off with security.opengrep = "off" in config.json — do not close the task on a scan that never happened.`);
+  }
   if (deep.available && deep.findings.length) {
     blockers.push(`deep scan (${deep.tool}) findings:\n${deep.findings.slice(0, 8).map((f) => `- ${f.rule} ${f.file}:${f.line} ${f.message}`).join('\n')}`);
   }

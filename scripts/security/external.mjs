@@ -103,6 +103,15 @@ export function deepScan(root, rels, config) {
     data = JSON.parse(result.stdout || 'null');
   } catch {}
   if (!data) return { available: true, tool, findings: [], error: (result.stderr || 'no output').slice(0, 300) };
+  const broken = (data.errors || []).filter((e) => /invalid|could not parse|unable to parse/i.test(String(e.message || e.type || '')));
+  if (broken.length) {
+    return {
+      available: true,
+      tool,
+      findings: [],
+      error: `${tool} rejected the rule file, so this scan proved nothing: ${String(broken[0].message || broken[0].type).split('\n')[0].slice(0, 200)}`,
+    };
+  }
   return {
     available: true,
     tool,

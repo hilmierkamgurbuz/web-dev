@@ -45,8 +45,8 @@ function slug(routePath) {
 }
 
 function inspectPage({ minTap, minFont, mobile }) {
-  const vw = window.innerWidth;
   const doc = document.documentElement;
+  const vw = doc.clientWidth || window.innerWidth;
   const describe = (el) => {
     let s = el.tagName.toLowerCase();
     if (el.id) s += `#${el.id}`;

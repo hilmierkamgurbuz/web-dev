@@ -66,10 +66,18 @@ function workspaceRoots(root, pkg) {
   return [...parents];
 }
 
+function holdsSkipped(dir, depth) {
+  for (const entry of entries(dir)) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+    if (SKIP_DIRS.has(entry.name)) return true;
+    if (depth > 0 && holdsSkipped(path.join(dir, entry.name), depth - 1)) return true;
+  }
+  return false;
+}
+
 function expand(dir, depth) {
-  const children = entries(dir).filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'));
-  if (depth === 0 || !children.some((entry) => SKIP_DIRS.has(entry.name))) return [dir];
-  const kept = children.filter((entry) => !SKIP_DIRS.has(entry.name));
+  if (depth === 0 || !holdsSkipped(dir, depth)) return [dir];
+  const kept = entries(dir).filter((entry) => entry.isDirectory() && !entry.name.startsWith('.') && !SKIP_DIRS.has(entry.name));
   if (!kept.length) return [];
   return kept.flatMap((entry) => expand(path.join(dir, entry.name), depth - 1));
 }
@@ -83,7 +91,7 @@ export function sourceRoots(root) {
     if (!entry.isDirectory() || SKIP_DIRS.has(entry.name)) continue;
     if (!names.has(entry.name)) continue;
     const dir = path.join(root, entry.name);
-    roots.push(...(workspaces.has(entry.name) ? expand(dir, 2) : expand(dir, 1)));
+    roots.push(...(workspaces.has(entry.name) ? expand(dir, 3) : expand(dir, 2)));
   }
   if (!roots.length) roots.push(root);
   const harness = path.join(root, '.claude', 'web-dev');

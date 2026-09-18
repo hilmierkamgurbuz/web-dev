@@ -96,19 +96,34 @@ describe('sourceRoots: what the file watcher is pointed at', () => {
     assert.ok(roots.includes('packages'));
   });
 
-  test('a workspace parent holding node_modules is descended past, not watched whole', () => {
+  test('no watch root contains a node_modules, however deep it sits', () => {
     const dir = bare({
-      'package.json': JSON.stringify({ workspaces: ['apps/*'] }),
+      'package.json': JSON.stringify({ workspaces: ['apps/*', 'packages/*'] }),
       'apps/web/package.json': '{}',
       'apps/web/src/a.tsx': '',
-      'apps/node_modules/react/index.js': '',
-      'apps/api/package.json': '{}',
+      'apps/web/node_modules/react/index.js': '',
+      'apps/api/src/x.ts': '',
+      'apps/api/node_modules/x/i.js': '',
+      'packages/ui/src/b.tsx': '',
+      'packages/ui/node_modules/y/i.js': '',
+      'src/root.ts': '',
     });
     const roots = sourceRoots(dir);
-    assert.ok(!roots.some((p) => p.endsWith(path.join('apps'))), 'the parent itself is not watched, because node_modules lives under it');
-    assert.ok(roots.some((p) => p.endsWith(path.join('apps', 'web'))));
-    assert.ok(roots.some((p) => p.endsWith(path.join('apps', 'api'))));
-    assert.ok(!roots.some((p) => p.includes('node_modules')));
+    const holdsModules = (start) => {
+      const walk = (p, depth) => {
+        if (depth < 0) return false;
+        for (const entry of fs.readdirSync(p, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          if (entry.name === 'node_modules') return true;
+          if (depth > 0 && walk(path.join(p, entry.name), depth - 1)) return true;
+        }
+        return false;
+      };
+      return walk(start, 3);
+    };
+    assert.deepEqual(roots.filter(holdsModules), [], 'a watch root that contains node_modules spawns a hook per installed file');
+    assert.ok(roots.some((p) => p.endsWith(path.join('apps', 'web', 'src'))));
+    assert.ok(roots.some((p) => p.endsWith(path.join('packages', 'ui', 'src'))));
   });
 
   test('an armed project also watches the state it owns', () => {

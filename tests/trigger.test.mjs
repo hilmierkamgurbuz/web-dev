@@ -126,6 +126,26 @@ describe('sourceRoots: what the file watcher is pointed at', () => {
     assert.ok(roots.some((p) => p.endsWith(path.join('packages', 'ui', 'src'))));
   });
 
+  test('a Claude Code worktree under .claude/ is never watched', () => {
+    const dir = bare({
+      'package.json': '{}',
+      'src/a.ts': '',
+      '.claude/settings.json': '{}',
+      '.claude/agents/web-dev-reviewer.md': '',
+      '.claude/rules/web-dev-tests.md': '',
+      '.claude/web-dev/state/task.json': '{}',
+      '.claude/worktrees/feature/package.json': '{}',
+      '.claude/worktrees/feature/src/a.ts': '',
+      '.claude/worktrees/feature/node_modules/react/index.js': '',
+    });
+    const roots = sourceRoots(dir);
+    assert.ok(!roots.includes(path.join(dir, '.claude')), 'watching .claude whole pulls in every worktree and its node_modules');
+    assert.deepEqual(roots.filter((p) => p.startsWith(path.join(dir, '.claude', 'worktrees'))), []);
+    for (const owned of ['web-dev', 'agents', 'rules', 'settings.json']) {
+      assert.ok(roots.includes(path.join(dir, '.claude', owned)), `.claude/${owned} stays watched`);
+    }
+  });
+
   test('an armed project also watches the state it owns', () => {
     const dir = bare({ 'package.json': '{}', 'src/a.ts': '', '.claude/web-dev/state/task.json': '{}' });
     const roots = sourceRoots(dir);

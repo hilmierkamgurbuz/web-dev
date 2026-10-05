@@ -95,9 +95,9 @@ export function sourceRoots(root) {
   }
   if (!roots.length) roots.push(root);
   const harness = path.join(root, '.claude', 'web-dev');
-  if (fs.existsSync(harness)) roots.push(path.join(harness, 'state'), path.join(harness, 'work'));
-  const settings = path.join(root, '.claude');
-  if (fs.existsSync(settings)) roots.push(settings);
+  if (fs.existsSync(harness)) roots.push(harness, path.join(harness, 'state'), path.join(harness, 'work'));
+  const claude = path.join(root, '.claude');
+  roots.push(...['agents', 'rules', 'settings.json', 'settings.local.json'].map((name) => path.join(claude, name)));
   return [...new Set(roots)].filter((dir) => fs.existsSync(dir));
 }
 

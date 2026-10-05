@@ -1,7 +1,7 @@
 {
   "name": "web-dev",
   "displayName": "web-dev",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "A harness for JavaScript/TypeScript web development — new projects and existing ones. It arms itself: the plugin ships its own hooks, so the gates run in every directory with no per-project setup, and the harness engages on an empty folder as readily as on a five-year-old repository. Question-first intake with options, an approved brief instead of plan mode, ceremony scaled to blast radius, hook-enforced manifest/security/comment/branch/dependency gates that hold in every permission mode, a filesystem watch that sees writes no tool gate can, self-auditing code/API/UI/data maps with per-symbol notes that never go stale, responsive checks, a clean-context review, and a branch → PR → /clear cycle. Requires Node 20+, git and Claude Code v2.1.200+.",
   "author": {
     "name": "hilmi erkam gürbüz",
